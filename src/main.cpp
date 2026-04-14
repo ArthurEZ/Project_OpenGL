@@ -1,12 +1,35 @@
 #include <cmath>
 #include <cstdlib>
+#include <filesystem>
+#include <fstream>
 #include <iostream>
+#include <string>
+#include <vector>
 
 #include <GLFW/glfw3.h>
 
 namespace {
 void framebuffer_size_callback(GLFWwindow* /*window*/, int width, int height) {
     glViewport(0, 0, width, height);
+}
+
+std::vector<std::filesystem::path> resource_roots() {
+    const std::filesystem::path cwd = std::filesystem::current_path();
+    return {
+        cwd / "resources",
+        cwd.parent_path() / "resources",
+        std::filesystem::path(APP_SOURCE_DIR) / "resources"
+    };
+}
+
+std::filesystem::path find_resource(const std::string& relative_path) {
+    for (const auto& root : resource_roots()) {
+        const auto candidate = root / relative_path;
+        if (std::filesystem::exists(candidate)) {
+            return candidate;
+        }
+    }
+    return {};
 }
 }
 
@@ -29,6 +52,21 @@ int main() {
 
     glfwMakeContextCurrent(window);
     glfwSetFramebufferSizeCallback(window, framebuffer_size_callback);
+
+    const auto model_path = find_resource("cube.obj");
+    if (model_path.empty()) {
+        std::cerr << "Could not find cube.obj in resources folders:\n";
+        for (const auto& root : resource_roots()) {
+            std::cerr << "  - " << root.string() << '\n';
+        }
+    } else {
+        std::ifstream model_file(model_path);
+        if (!model_file) {
+            std::cerr << "Found model but failed to open: " << model_path.string() << '\n';
+        } else {
+            std::cout << "Loaded model from: " << model_path.string() << '\n';
+        }
+    }
 
     int width = 0;
     int height = 0;

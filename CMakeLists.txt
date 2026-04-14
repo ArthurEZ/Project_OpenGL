@@ -26,6 +26,19 @@ add_executable(opengl_starter
   src/main.cpp
 )
 
+target_compile_definitions(opengl_starter
+  PRIVATE
+    APP_SOURCE_DIR="${CMAKE_SOURCE_DIR}"
+)
+
+if(EXISTS "${CMAKE_SOURCE_DIR}/resources")
+  add_custom_command(TARGET opengl_starter POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+      "${CMAKE_SOURCE_DIR}/resources"
+      "$<TARGET_FILE_DIR:opengl_starter>/resources"
+  )
+endif()
+
 target_link_libraries(opengl_starter
   PRIVATE
     glfw
