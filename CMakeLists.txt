@@ -13,12 +13,18 @@ FetchContent_Declare(
   URL https://github.com/glfw/glfw/archive/refs/tags/3.4.tar.gz
 )
 
+FetchContent_Declare(
+  nlohmann_json
+  URL https://github.com/nlohmann/json/releases/download/v3.11.3/json.tar.xz
+)
+
 # Keep GLFW build minimal.
 set(GLFW_BUILD_DOCS OFF CACHE BOOL "" FORCE)
 set(GLFW_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 set(GLFW_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 
 FetchContent_MakeAvailable(glfw)
+FetchContent_MakeAvailable(nlohmann_json)
 
 find_package(OpenGL REQUIRED)
 
@@ -42,8 +48,13 @@ endif()
 target_link_libraries(opengl_starter
   PRIVATE
     glfw
+    nlohmann_json::nlohmann_json
     OpenGL::GL
 )
+
+if(WIN32)
+  target_link_libraries(opengl_starter PRIVATE gdiplus)
+endif()
 
 if(WIN32 AND CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
   get_filename_component(MINGW_BIN_DIR "${CMAKE_CXX_COMPILER}" DIRECTORY)
