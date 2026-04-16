@@ -30,6 +30,10 @@ find_package(OpenGL REQUIRED)
 
 add_executable(opengl_starter
   src/main.cpp
+  src/math.cpp
+  src/assets.cpp
+  src/graphics.cpp
+  src/game.cpp
 )
 
 target_compile_definitions(opengl_starter
