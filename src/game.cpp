@@ -10,8 +10,18 @@ void reset_game(GameState& game) {
 
 void spawn_enemy(GameState& game, float arena_radius, std::mt19937& rng) {
     std::uniform_real_distribution<float> angle_dist(0.0f, 2.0f * kPi);
+    std::uniform_real_distribution<float> radial_dist(0.0f, 1.0f);
     const float angle = angle_dist(rng);
-    const float spawn_radius = std::max(6.0f, arena_radius * 0.9f);
+    const float min_spawn_radius = 0.0f;
+    const float max_spawn_radius = std::max(8.0f, arena_radius * 0.25f);
+
+    // Sample radius with sqrt so points are uniformly distributed across area.
+    const float t = radial_dist(rng);
+    const float spawn_radius = std::sqrt(
+        min_spawn_radius * min_spawn_radius +
+        t * (max_spawn_radius * max_spawn_radius - min_spawn_radius * min_spawn_radius)
+    );
+
     Vec3 spawn{
         std::cos(angle) * spawn_radius,
         0.55f,

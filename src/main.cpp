@@ -103,7 +103,7 @@ int main() {
             move = normalized(move);
             game.player_position = game.player_position + move * (8.0f * dt);
 
-            const float max_player_radius = std::max(4.0f, arena.radius * 0.9f);
+            const float max_player_radius = arena.radius * 0.25f;
             const float r = std::sqrt(game.player_position.x * game.player_position.x + game.player_position.z * game.player_position.z);
             if (r > max_player_radius) {
                 const float inv = max_player_radius / r;
