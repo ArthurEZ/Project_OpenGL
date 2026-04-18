@@ -14,23 +14,25 @@ Install these tools first:
 - CMake 3.20+
 - A C++ compiler (Visual Studio Build Tools, Visual Studio, or MinGW)
 
-## Build and Run (VS Code Tasks)
-
-1. Open the project in VS Code.
-2. Run task: `CMake: Build`
-3. Run task: `CMake: Run`
-
 ## Build and Run (Terminal)
 
-```powershell
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug
-cmake --build build
-.
-\build\opengl_starter.exe
+From the project root:
+
+```bash
+mkdir -p build
+cd build
+cmake ..
+cmake --build .
 ```
 
-If your generator is multi-config (for example Visual Studio), run:
+The executable is written to `bin/` in the project root, so run it from the build folder like this:
 
-```powershell
-.\build\Debug\opengl_starter.exe
+```bash
+../bin/opengl_starter
 ```
+
+## Notes
+
+- `build/` is a generated folder and should not be checked into Git.
+- `bin/` is the output folder for compiled executables.
+- `.gitignore` already ignores `build/`, `bin/`, and `.vscode/`.
