@@ -36,6 +36,10 @@ add_executable(opengl_starter
   src/game.cpp
 )
 
+set_target_properties(opengl_starter PROPERTIES
+  RUNTIME_OUTPUT_DIRECTORY "${CMAKE_SOURCE_DIR}/bin"
+)
+
 target_compile_definitions(opengl_starter
   PRIVATE
     APP_SOURCE_DIR="${CMAKE_SOURCE_DIR}"

@@ -1,7 +1,11 @@
 #include "graphics.h"
 #include "math.h"
 #include "game.h"
-#include <GL/gl.h>
+#ifdef __APPLE__
+  #include <OpenGL/gl.h>
+#else
+  #include <GL/gl.h>
+#endif
 
 constexpr float kCameraPitchDegrees = 79.0f;
 constexpr float kArenaRenderYOffset = -80.0f;
