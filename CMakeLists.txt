@@ -20,6 +20,19 @@ set(GLFW_BUILD_DOCS OFF CACHE BOOL "" FORCE)
 set(GLFW_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 set(GLFW_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 
+if(APPLE)
+    # Force CMake to use Homebrew's Assimp on Mac M-series chips
+    set(ASSIMP_INCLUDE_DIR "/opt/homebrew/include")
+    set(ASSIMP_LIBRARY "/opt/homebrew/lib/libassimp.dylib")
+    include_directories(${ASSIMP_INCLUDE_DIR})
+    message(STATUS "FORCING Homebrew ASSIMP from ${ASSIMP_INCLUDE_DIR}")
+else()
+    find_package(ASSIMP REQUIRED)
+    set(ASSIMP_LIBRARY ${ASSIMP_LIBRARIES})
+    include_directories(${ASSIMP_INCLUDE_DIRS})
+    message(STATUS "Found ASSIMP in ${ASSIMP_INCLUDE_DIR}")
+endif()
+
 FetchContent_MakeAvailable(glfw)
 FetchContent_MakeAvailable(nlohmann_json)
 
@@ -59,6 +72,7 @@ target_link_libraries(opengl_starter
     GLAD
     glfw
     nlohmann_json::nlohmann_json
+    ${ASSIMP_LIBRARY}
     OpenGL::GL
 )
 

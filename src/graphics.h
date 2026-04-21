@@ -11,6 +11,7 @@ struct GameState;
 void draw_box(const Vec3& center, const Vec3& size, const std::array<float, 3>& color);
 void setup_camera(const GameState& game, int width, int height);
 void render_arena(const ArenaMesh& arena);
+void render_model(const ArenaMesh& model, const Mat4& world_matrix);
 void framebuffer_size_callback(GLFWwindow* window, int width, int height);
 
 #endif // GRAPHICS_H

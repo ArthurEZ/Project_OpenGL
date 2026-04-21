@@ -8,6 +8,12 @@
 #include <algorithm>
 #include <functional>
 #include <cctype>
+#include <assimp/Importer.hpp>
+#include <assimp/scene.h>
+#include <assimp/postprocess.h>
+
+#define STB_IMAGE_IMPLEMENTATION
+#include "stb_image.h"
 
 #ifdef _WIN32
 #include <windows.h>
@@ -90,6 +96,120 @@ T read_scalar(const std::vector<unsigned char>& data, size_t offset) {
     }
     std::memcpy(&value, data.data() + offset, sizeof(T));
     return value;
+}
+
+Mat4 mat4_from_ai(const aiMatrix4x4& in) {
+    Mat4 out = {};
+    out.m[0] = in.a1; out.m[4] = in.a2; out.m[8] = in.a3; out.m[12] = in.a4;
+    out.m[1] = in.b1; out.m[5] = in.b2; out.m[9] = in.b3; out.m[13] = in.b4;
+    out.m[2] = in.c1; out.m[6] = in.c2; out.m[10] = in.c3; out.m[14] = in.c4;
+    out.m[3] = in.d1; out.m[7] = in.d2; out.m[11] = in.d3; out.m[15] = in.d4;
+    return out;
+}
+
+Mat4 ai_inverse_to_mat4(aiMatrix4x4 matrix) {
+    matrix.Inverse();
+    return mat4_from_ai(matrix);
+}
+
+std::array<float, 4> normalize_quat(const std::array<float, 4>& q) {
+    const float len = std::sqrt(q[0] * q[0] + q[1] * q[1] + q[2] * q[2] + q[3] * q[3]);
+    if (len < 1e-6f) {
+        return {0.0f, 0.0f, 0.0f, 1.0f};
+    }
+    return {q[0] / len, q[1] / len, q[2] / len, q[3] / len};
+}
+
+std::array<float, 4> slerp_quat(const std::array<float, 4>& a, const std::array<float, 4>& b, float t) {
+    std::array<float, 4> end = b;
+    float dot = a[0] * end[0] + a[1] * end[1] + a[2] * end[2] + a[3] * end[3];
+    if (dot < 0.0f) {
+        dot = -dot;
+        end = {-end[0], -end[1], -end[2], -end[3]};
+    }
+
+    if (dot > 0.9995f) {
+        std::array<float, 4> out{
+            a[0] + t * (end[0] - a[0]),
+            a[1] + t * (end[1] - a[1]),
+            a[2] + t * (end[2] - a[2]),
+            a[3] + t * (end[3] - a[3])
+        };
+        return normalize_quat(out);
+    }
+
+    const float theta_0 = std::acos(clampf(dot, -1.0f, 1.0f));
+    const float theta = theta_0 * t;
+    const float sin_theta = std::sin(theta);
+    const float sin_theta_0 = std::sin(theta_0);
+    const float s0 = std::cos(theta) - dot * sin_theta / sin_theta_0;
+    const float s1 = sin_theta / sin_theta_0;
+    return {
+        s0 * a[0] + s1 * end[0],
+        s0 * a[1] + s1 * end[1],
+        s0 * a[2] + s1 * end[2],
+        s0 * a[3] + s1 * end[3]
+    };
+}
+
+Vec3 lerp_vec3(const Vec3& a, const Vec3& b, float t) {
+    return {
+        a.x + (b.x - a.x) * t,
+        a.y + (b.y - a.y) * t,
+        a.z + (b.z - a.z) * t
+    };
+}
+
+Vec3 sample_vec3_keys(const std::vector<AnimatedModel::KeyVec3>& keys, double time_seconds) {
+    if (keys.empty()) {
+        return {};
+    }
+    if (keys.size() == 1) {
+        return keys.front().value;
+    }
+
+    if (time_seconds <= keys.front().time) {
+        return keys.front().value;
+    }
+    if (time_seconds >= keys.back().time) {
+        return keys.back().value;
+    }
+
+    for (size_t i = 0; i + 1 < keys.size(); ++i) {
+        if (time_seconds < keys[i + 1].time) {
+            const double span = std::max(1e-6, keys[i + 1].time - keys[i].time);
+            const float t = static_cast<float>((time_seconds - keys[i].time) / span);
+            return lerp_vec3(keys[i].value, keys[i + 1].value, t);
+        }
+    }
+
+    return keys.back().value;
+}
+
+std::array<float, 4> sample_quat_keys(const std::vector<AnimatedModel::KeyQuat>& keys, double time_seconds) {
+    if (keys.empty()) {
+        return {0.0f, 0.0f, 0.0f, 1.0f};
+    }
+    if (keys.size() == 1) {
+        return normalize_quat(keys.front().value);
+    }
+
+    if (time_seconds <= keys.front().time) {
+        return normalize_quat(keys.front().value);
+    }
+    if (time_seconds >= keys.back().time) {
+        return normalize_quat(keys.back().value);
+    }
+
+    for (size_t i = 0; i + 1 < keys.size(); ++i) {
+        if (time_seconds < keys[i + 1].time) {
+            const double span = std::max(1e-6, keys[i + 1].time - keys[i].time);
+            const float t = static_cast<float>((time_seconds - keys[i].time) / span);
+            return normalize_quat(slerp_quat(keys[i].value, keys[i + 1].value, t));
+        }
+    }
+
+    return normalize_quat(keys.back().value);
 }
 
 Mat4 read_node_local_matrix(const json& node) {
@@ -596,61 +716,26 @@ bool load_arena_mesh(const std::filesystem::path& gltf_path, ArenaMesh& mesh, st
 }
 
 bool upload_arena_textures(ArenaMesh& mesh, std::string& error) {
-#ifdef _WIN32
-    GdiPlusContext gdiplus;
-    if (!gdiplus.startup()) {
-        error = "Failed to initialize GDI+";
-        return false;
-    }
-
     bool any_loaded = false;
+
+    stbi_set_flip_vertically_on_load(1);
 
     for (auto& texture : mesh.textures) {
         if (texture.image_path.empty()) {
             continue;
         }
 
-        const std::wstring path = texture.image_path.wstring();
-        Gdiplus::Bitmap bitmap(path.c_str());
-        if (bitmap.GetLastStatus() != Gdiplus::Ok) {
-            std::cerr << "Texture load warning: " << texture.image_path.string() << " (GDI+ failed)\n";
-            continue;
-        }
-
-        const int width = static_cast<int>(bitmap.GetWidth());
-        const int height = static_cast<int>(bitmap.GetHeight());
-        if (width <= 0 || height <= 0) {
-            continue;
-        }
-
-        Gdiplus::Rect rect(0, 0, width, height);
-        Gdiplus::BitmapData data;
-        if (bitmap.LockBits(&rect, Gdiplus::ImageLockModeRead, PixelFormat32bppARGB, &data) != Gdiplus::Ok) {
-            std::cerr << "Texture lock warning: " << texture.image_path.string() << "\n";
-            continue;
-        }
-
-        std::vector<unsigned char> rgba(static_cast<size_t>(width) * static_cast<size_t>(height) * 4);
-        const int abs_stride = (data.Stride >= 0) ? data.Stride : -data.Stride;
-
-        for (int y = 0; y < height; ++y) {
-            const int src_row = (data.Stride >= 0) ? y : (height - 1 - y);
-            const auto* src = reinterpret_cast<const unsigned char*>(data.Scan0) + src_row * abs_stride;
-            auto* dst = rgba.data() + static_cast<size_t>(y) * static_cast<size_t>(width) * 4;
-
-            for (int x = 0; x < width; ++x) {
-                const unsigned char b = src[x * 4 + 0];
-                const unsigned char g = src[x * 4 + 1];
-                const unsigned char r = src[x * 4 + 2];
-                const unsigned char a = src[x * 4 + 3];
-                dst[x * 4 + 0] = r;
-                dst[x * 4 + 1] = g;
-                dst[x * 4 + 2] = b;
-                dst[x * 4 + 3] = a;
+        int width = 0;
+        int height = 0;
+        int channels = 0;
+        unsigned char* pixels = stbi_load(texture.image_path.string().c_str(), &width, &height, &channels, 4);
+        if (pixels == nullptr || width <= 0 || height <= 0) {
+            std::cerr << "Texture load warning: " << texture.image_path.string() << " (stb_image failed)\n";
+            if (pixels != nullptr) {
+                stbi_image_free(pixels);
             }
+            continue;
         }
-
-        bitmap.UnlockBits(&data);
 
         glGenTextures(1, &texture.gl_id);
         glBindTexture(GL_TEXTURE_2D, texture.gl_id);
@@ -659,23 +744,18 @@ bool upload_arena_textures(ArenaMesh& mesh, std::string& error) {
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, rgba.data());
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
+        stbi_image_free(pixels);
 
         any_loaded = true;
     }
 
     glBindTexture(GL_TEXTURE_2D, 0);
-    gdiplus.shutdown();
 
     if (!any_loaded) {
         error = "No texture files loaded successfully";
     }
     return any_loaded;
-#else
-    (void)mesh;
-    error = "Texture loading is currently implemented for Windows only";
-    return false;
-#endif
 }
 
 void free_arena_textures(ArenaMesh& mesh) {
@@ -685,4 +765,670 @@ void free_arena_textures(ArenaMesh& mesh) {
             texture.gl_id = 0;
         }
     }
+}
+
+bool load_static_model_mesh(const std::filesystem::path& model_path, ArenaMesh& mesh, std::string& error) {
+    Assimp::Importer importer;
+    const unsigned int flags =
+        aiProcess_Triangulate |
+        aiProcess_JoinIdenticalVertices |
+        aiProcess_ImproveCacheLocality |
+        aiProcess_GenSmoothNormals |
+        aiProcess_FlipUVs;
+
+    const aiScene* scene = importer.ReadFile(model_path.string(), flags);
+    if (scene == nullptr || scene->mRootNode == nullptr) {
+        error = "Failed to import model: " + model_path.string();
+        const char* assimp_error = importer.GetErrorString();
+        if (assimp_error != nullptr && assimp_error[0] != '\0') {
+            error += " (" + std::string(assimp_error) + ")";
+        }
+        return false;
+    }
+
+    mesh.primitives.clear();
+    mesh.textures.clear();
+
+    struct TempPrimitive {
+        std::vector<Vec3> positions;
+        std::vector<std::array<float, 2>> texcoords;
+        std::vector<unsigned int> indices;
+        int base_texture_slot = -1;
+        std::array<float, 4> base_color_factor{1.0f, 1.0f, 1.0f, 1.0f};
+    };
+
+    std::vector<TempPrimitive> temp_primitives;
+    std::vector<Vec3> all_positions;
+
+    auto as_mat4 = [](const aiMatrix4x4& in) {
+        Mat4 out = {};
+        out.m[0] = in.a1; out.m[4] = in.a2; out.m[8] = in.a3; out.m[12] = in.a4;
+        out.m[1] = in.b1; out.m[5] = in.b2; out.m[9] = in.b3; out.m[13] = in.b4;
+        out.m[2] = in.c1; out.m[6] = in.c2; out.m[10] = in.c3; out.m[14] = in.c4;
+        out.m[3] = in.d1; out.m[7] = in.d2; out.m[11] = in.d3; out.m[15] = in.d4;
+        return out;
+    };
+
+    auto get_material_texture = [&](unsigned int material_index, aiTextureType texture_type) -> int {
+        if (material_index >= scene->mNumMaterials) {
+            return -1;
+        }
+
+        const aiMaterial* material = scene->mMaterials[material_index];
+        aiString rel_path;
+        if (material->GetTextureCount(texture_type) == 0 || material->GetTexture(texture_type, 0, &rel_path) != aiReturn_SUCCESS) {
+            return -1;
+        }
+
+        const std::string rel = rel_path.C_Str();
+        if (rel.empty() || rel[0] == '*') {
+            return -1;
+        }
+
+        ArenaMesh::Texture texture;
+        texture.image_path = model_path.parent_path() / rel;
+        mesh.textures.push_back(texture);
+        return static_cast<int>(mesh.textures.size() - 1);
+    };
+
+    std::function<void(const aiNode*, const aiMatrix4x4&)> visit_node;
+    visit_node = [&](const aiNode* node, const aiMatrix4x4& parent_transform) {
+        if (node == nullptr) {
+            return;
+        }
+
+        const aiMatrix4x4 world_transform = parent_transform * node->mTransformation;
+        const Mat4 world = as_mat4(world_transform);
+
+        for (unsigned int i = 0; i < node->mNumMeshes; ++i) {
+            const aiMesh* src_mesh = scene->mMeshes[node->mMeshes[i]];
+            if (src_mesh == nullptr || src_mesh->mNumVertices == 0) {
+                continue;
+            }
+
+            TempPrimitive temp;
+            temp.positions.reserve(src_mesh->mNumVertices);
+            temp.texcoords.reserve(src_mesh->mNumVertices);
+
+            for (unsigned int v = 0; v < src_mesh->mNumVertices; ++v) {
+                const aiVector3D& p = src_mesh->mVertices[v];
+                const Vec3 world_pos = transform_point(world, {p.x, p.y, p.z});
+                temp.positions.push_back(world_pos);
+                all_positions.push_back(world_pos);
+
+                if (src_mesh->HasTextureCoords(0)) {
+                    const aiVector3D& uv = src_mesh->mTextureCoords[0][v];
+                    temp.texcoords.push_back({uv.x, uv.y});
+                }
+            }
+
+            for (unsigned int f = 0; f < src_mesh->mNumFaces; ++f) {
+                const aiFace& face = src_mesh->mFaces[f];
+                if (face.mNumIndices != 3) {
+                    continue;
+                }
+                temp.indices.push_back(face.mIndices[0]);
+                temp.indices.push_back(face.mIndices[1]);
+                temp.indices.push_back(face.mIndices[2]);
+            }
+
+            if (src_mesh->mMaterialIndex < scene->mNumMaterials) {
+                const aiMaterial* material = scene->mMaterials[src_mesh->mMaterialIndex];
+                if (material != nullptr) {
+                    aiColor4D diffuse(1.0f, 1.0f, 1.0f, 1.0f);
+                    if (aiGetMaterialColor(material, AI_MATKEY_COLOR_DIFFUSE, &diffuse) == aiReturn_SUCCESS) {
+                        temp.base_color_factor = {diffuse.r, diffuse.g, diffuse.b, diffuse.a};
+                    }
+                    temp.base_texture_slot = get_material_texture(src_mesh->mMaterialIndex, aiTextureType_DIFFUSE);
+                }
+            }
+
+            if (!temp.positions.empty() && !temp.indices.empty()) {
+                temp_primitives.push_back(std::move(temp));
+            }
+        }
+
+        for (unsigned int c = 0; c < node->mNumChildren; ++c) {
+            visit_node(node->mChildren[c], world_transform);
+        }
+    };
+
+    const aiMatrix4x4 root_identity(
+        1.0f, 0.0f, 0.0f, 0.0f,
+        0.0f, 1.0f, 0.0f, 0.0f,
+        0.0f, 0.0f, 1.0f, 0.0f,
+        0.0f, 0.0f, 0.0f, 1.0f
+    );
+    visit_node(scene->mRootNode, root_identity);
+
+    if (temp_primitives.empty() || all_positions.empty()) {
+        error = "No renderable geometry found in model: " + model_path.string();
+        return false;
+    }
+
+    float min_x = std::numeric_limits<float>::max();
+    float min_y = std::numeric_limits<float>::max();
+    float min_z = std::numeric_limits<float>::max();
+    float max_x = std::numeric_limits<float>::lowest();
+    float max_z = std::numeric_limits<float>::lowest();
+
+    for (const auto& p : all_positions) {
+        min_x = std::min(min_x, p.x);
+        min_y = std::min(min_y, p.y);
+        min_z = std::min(min_z, p.z);
+        max_x = std::max(max_x, p.x);
+        max_z = std::max(max_z, p.z);
+    }
+
+    const float center_x = 0.5f * (min_x + max_x);
+    const float center_z = 0.5f * (min_z + max_z);
+    const float half_x = 0.5f * (max_x - min_x);
+    const float half_z = 0.5f * (max_z - min_z);
+    const float raw_radius = std::max(half_x, half_z);
+    const float scale = (raw_radius > 1e-5f) ? (1.0f / raw_radius) : 1.0f;
+
+    mesh.primitives.reserve(temp_primitives.size());
+    for (auto& temp : temp_primitives) {
+        ArenaMesh::Primitive primitive;
+        primitive.base_texture_slot = temp.base_texture_slot;
+        primitive.base_color_factor = temp.base_color_factor;
+        primitive.indices = std::move(temp.indices);
+        primitive.vertex_data.reserve(temp.positions.size() * 5);
+
+        for (size_t i = 0; i < temp.positions.size(); ++i) {
+            const Vec3& p = temp.positions[i];
+            const float x = (p.x - center_x) * scale;
+            const float y = (p.y - min_y) * scale;
+            const float z = (p.z - center_z) * scale;
+
+            float u = 0.0f;
+            float v = 0.0f;
+            if (!temp.texcoords.empty() && i < temp.texcoords.size()) {
+                u = temp.texcoords[i][0];
+                v = 1.0f - temp.texcoords[i][1];
+            }
+
+            primitive.vertex_data.push_back(x);
+            primitive.vertex_data.push_back(y);
+            primitive.vertex_data.push_back(z);
+            primitive.vertex_data.push_back(u);
+            primitive.vertex_data.push_back(v);
+        }
+
+        mesh.primitives.push_back(std::move(primitive));
+    }
+
+    mesh.radius = 1.0f;
+    return true;
+}
+
+namespace {
+
+void add_bone_influence(std::array<int, 4>& ids, std::array<float, 4>& weights, int bone_index, float weight) {
+    for (int i = 0; i < 4; ++i) {
+        if (weights[i] == 0.0f) {
+            ids[i] = bone_index;
+            weights[i] = weight;
+            return;
+        }
+    }
+
+    int smallest_index = 0;
+    for (int i = 1; i < 4; ++i) {
+        if (weights[i] < weights[smallest_index]) {
+            smallest_index = i;
+        }
+    }
+    if (weight > weights[smallest_index]) {
+        ids[smallest_index] = bone_index;
+        weights[smallest_index] = weight;
+    }
+}
+
+int copy_nodes_recursive(const aiNode* node, AnimatedModel& model) {
+    if (node == nullptr) {
+        return -1;
+    }
+
+    AnimatedModel::Node current;
+    current.name = node->mName.C_Str();
+    current.local_transform = mat4_from_ai(node->mTransformation);
+
+    const int current_index = static_cast<int>(model.nodes.size());
+    model.node_lookup[current.name] = current_index;
+    model.nodes.push_back(current);
+
+    for (unsigned int i = 0; i < node->mNumChildren; ++i) {
+        const int child_index = copy_nodes_recursive(node->mChildren[i], model);
+        if (child_index >= 0) {
+            model.nodes[current_index].children.push_back(child_index);
+        }
+    }
+
+    return current_index;
+}
+
+void extract_track_keys(
+    const aiNodeAnim* channel,
+    std::vector<AnimatedModel::KeyVec3>& positions,
+    std::vector<AnimatedModel::KeyQuat>& rotations,
+    std::vector<AnimatedModel::KeyVec3>& scales
+) {
+    if (channel == nullptr) {
+        return;
+    }
+
+    positions.reserve(channel->mNumPositionKeys);
+    for (unsigned int i = 0; i < channel->mNumPositionKeys; ++i) {
+        const auto& key = channel->mPositionKeys[i];
+        positions.push_back({static_cast<double>(key.mTime), {key.mValue.x, key.mValue.y, key.mValue.z}});
+    }
+
+    rotations.reserve(channel->mNumRotationKeys);
+    for (unsigned int i = 0; i < channel->mNumRotationKeys; ++i) {
+        const auto& key = channel->mRotationKeys[i];
+        rotations.push_back({static_cast<double>(key.mTime), {key.mValue.x, key.mValue.y, key.mValue.z, key.mValue.w}});
+    }
+
+    scales.reserve(channel->mNumScalingKeys);
+    for (unsigned int i = 0; i < channel->mNumScalingKeys; ++i) {
+        const auto& key = channel->mScalingKeys[i];
+        scales.push_back({static_cast<double>(key.mTime), {key.mValue.x, key.mValue.y, key.mValue.z}});
+    }
+
+}
+
+} // namespace
+
+bool load_animated_model(const std::filesystem::path& model_path, AnimatedModel& model, std::string& error) {
+    Assimp::Importer importer;
+    const unsigned int flags =
+        aiProcess_Triangulate |
+        aiProcess_JoinIdenticalVertices |
+        aiProcess_ImproveCacheLocality |
+        aiProcess_GenSmoothNormals |
+        aiProcess_FlipUVs;
+
+    const aiScene* scene = importer.ReadFile(model_path.string(), flags);
+    if (scene == nullptr || scene->mRootNode == nullptr) {
+        error = "Failed to import animated model: " + model_path.string();
+        const char* assimp_error = importer.GetErrorString();
+        if (assimp_error != nullptr && assimp_error[0] != '\0') {
+            error += " (" + std::string(assimp_error) + ")";
+        }
+        return false;
+    }
+
+    model = AnimatedModel{};
+    model.global_inverse = ai_inverse_to_mat4(scene->mRootNode->mTransformation);
+
+    if (scene->mAnimations != nullptr && scene->mNumAnimations > 0) {
+        for (unsigned int i = 0; i < scene->mNumAnimations; ++i) {
+            const aiAnimation* anim = scene->mAnimations[i];
+            if (anim == nullptr) {
+                continue;
+            }
+
+            AnimatedModel::Clip clip;
+            clip.name = anim->mName.C_Str();
+            clip.duration = static_cast<double>(anim->mDuration);
+            clip.ticks_per_second = anim->mTicksPerSecond > 0.0 ? anim->mTicksPerSecond : 25.0;
+
+            for (unsigned int c = 0; c < anim->mNumChannels; ++c) {
+                const aiNodeAnim* channel = anim->mChannels[c];
+                if (channel == nullptr) {
+                    continue;
+                }
+
+                AnimatedModel::Channel out_channel;
+                out_channel.node_name = channel->mNodeName.C_Str();
+                extract_track_keys(channel, out_channel.position_keys, out_channel.rotation_keys, out_channel.scale_keys);
+                clip.channels.push_back(std::move(out_channel));
+            }
+
+            model.clips.push_back(std::move(clip));
+        }
+    }
+
+    std::vector<Vec3> all_positions;
+
+    struct TempPrimitive {
+        std::vector<Vec3> positions;
+        std::vector<std::array<float, 2>> texcoords;
+        std::vector<std::array<int, 4>> bone_ids;
+        std::vector<std::array<float, 4>> bone_weights;
+        std::vector<unsigned int> indices;
+        int base_texture_slot = -1;
+        std::array<float, 4> base_color_factor{1.0f, 1.0f, 1.0f, 1.0f};
+    };
+    std::vector<TempPrimitive> temp_primitives;
+
+    auto get_or_add_bone = [&](const std::string& bone_name, const aiMatrix4x4& offset_matrix) -> int {
+        const auto found = model.bone_lookup.find(bone_name);
+        if (found != model.bone_lookup.end()) {
+            return found->second;
+        }
+
+        AnimatedModel::Bone bone;
+        bone.name = bone_name;
+        bone.offset = mat4_from_ai(offset_matrix);
+        const auto node_it = model.node_lookup.find(bone_name);
+        if (node_it != model.node_lookup.end()) {
+            bone.node_index = node_it->second;
+        }
+
+        const int bone_index = static_cast<int>(model.bones.size());
+        model.bones.push_back(bone);
+        model.bone_lookup[bone_name] = bone_index;
+        return bone_index;
+    };
+
+    if (scene->mRootNode != nullptr) {
+        copy_nodes_recursive(scene->mRootNode, model);
+    }
+
+    if (scene->mMeshes == nullptr || scene->mNumMeshes == 0) {
+        error = "Animated model has no meshes: " + model_path.string();
+        return false;
+    }
+
+    for (unsigned int mesh_index = 0; mesh_index < scene->mNumMeshes; ++mesh_index) {
+        const aiMesh* src_mesh = scene->mMeshes[mesh_index];
+        if (src_mesh == nullptr || src_mesh->mNumVertices == 0) {
+            continue;
+        }
+
+        TempPrimitive temp;
+        temp.positions.reserve(src_mesh->mNumVertices);
+        temp.texcoords.reserve(src_mesh->mNumVertices);
+        temp.bone_ids.resize(src_mesh->mNumVertices, {-1, -1, -1, -1});
+        temp.bone_weights.resize(src_mesh->mNumVertices, {0.0f, 0.0f, 0.0f, 0.0f});
+
+        for (unsigned int v = 0; v < src_mesh->mNumVertices; ++v) {
+            const aiVector3D& p = src_mesh->mVertices[v];
+            temp.positions.push_back({p.x, p.y, p.z});
+            all_positions.push_back({p.x, p.y, p.z});
+
+            if (src_mesh->HasTextureCoords(0)) {
+                const aiVector3D& uv = src_mesh->mTextureCoords[0][v];
+                temp.texcoords.push_back({uv.x, uv.y});
+            }
+        }
+
+        for (unsigned int f = 0; f < src_mesh->mNumFaces; ++f) {
+            const aiFace& face = src_mesh->mFaces[f];
+            if (face.mNumIndices != 3) {
+                continue;
+            }
+            temp.indices.push_back(face.mIndices[0]);
+            temp.indices.push_back(face.mIndices[1]);
+            temp.indices.push_back(face.mIndices[2]);
+        }
+
+        for (unsigned int b = 0; b < src_mesh->mNumBones; ++b) {
+            const aiBone* src_bone = src_mesh->mBones[b];
+            if (src_bone == nullptr) {
+                continue;
+            }
+
+            const int bone_index = get_or_add_bone(src_bone->mName.C_Str(), src_bone->mOffsetMatrix);
+            for (unsigned int w = 0; w < src_bone->mNumWeights; ++w) {
+                const aiVertexWeight& weight = src_bone->mWeights[w];
+                if (weight.mVertexId >= temp.bone_ids.size()) {
+                    continue;
+                }
+                add_bone_influence(temp.bone_ids[weight.mVertexId], temp.bone_weights[weight.mVertexId], bone_index, weight.mWeight);
+            }
+        }
+
+        if (src_mesh->mMaterialIndex < scene->mNumMaterials) {
+            const aiMaterial* material = scene->mMaterials[src_mesh->mMaterialIndex];
+            if (material != nullptr) {
+                aiColor4D diffuse(1.0f, 1.0f, 1.0f, 1.0f);
+                if (aiGetMaterialColor(material, AI_MATKEY_COLOR_DIFFUSE, &diffuse) == aiReturn_SUCCESS) {
+                    temp.base_color_factor = {diffuse.r, diffuse.g, diffuse.b, diffuse.a};
+                }
+                if (material->GetTextureCount(aiTextureType_DIFFUSE) > 0) {
+                    aiString rel_path;
+                    if (material->GetTexture(aiTextureType_DIFFUSE, 0, &rel_path) == aiReturn_SUCCESS && rel_path.length > 0 && rel_path.C_Str()[0] != '*') {
+                        ArenaMesh::Texture texture;
+                        texture.image_path = model_path.parent_path() / rel_path.C_Str();
+                        model.mesh.textures.push_back(texture);
+                        temp.base_texture_slot = static_cast<int>(model.mesh.textures.size() - 1);
+                    }
+                }
+            }
+        }
+
+        temp_primitives.push_back(std::move(temp));
+    }
+
+    if (all_positions.empty() || temp_primitives.empty()) {
+        error = "No renderable geometry found in animated model: " + model_path.string();
+        return false;
+    }
+
+    float min_x = std::numeric_limits<float>::max();
+    float min_y = std::numeric_limits<float>::max();
+    float min_z = std::numeric_limits<float>::max();
+    float max_x = std::numeric_limits<float>::lowest();
+    float max_z = std::numeric_limits<float>::lowest();
+
+    for (const auto& v : all_positions) {
+        min_x = std::min(min_x, v.x);
+        min_y = std::min(min_y, v.y);
+        min_z = std::min(min_z, v.z);
+        max_x = std::max(max_x, v.x);
+        max_z = std::max(max_z, v.z);
+    }
+
+    model.bounds_center = {0.5f * (min_x + max_x), 0.0f, 0.5f * (min_z + max_z)};
+    model.bounds_min_y = min_y;
+    const float half_x = 0.5f * (max_x - min_x);
+    const float half_z = 0.5f * (max_z - min_z);
+    const float raw_radius = std::max(half_x, half_z);
+    model.bounds_scale = (raw_radius > 1e-5f) ? (1.0f / raw_radius) : 1.0f;
+    model.normalization = compose_trs(
+        {-model.bounds_center[0], -model.bounds_min_y, -model.bounds_center[2]},
+        {0.0f, 0.0f, 0.0f, 1.0f},
+        {model.bounds_scale, model.bounds_scale, model.bounds_scale}
+    );
+
+    model.mesh.primitives.clear();
+    model.mesh.primitives.reserve(temp_primitives.size());
+
+    for (auto& temp : temp_primitives) {
+        ArenaMesh::Primitive primitive;
+        primitive.base_texture_slot = temp.base_texture_slot;
+        primitive.base_color_factor = temp.base_color_factor;
+        primitive.indices = std::move(temp.indices);
+        primitive.positions = std::move(temp.positions);
+        primitive.texcoords = std::move(temp.texcoords);
+        primitive.bone_ids = std::move(temp.bone_ids);
+        primitive.bone_weights = std::move(temp.bone_weights);
+
+        primitive.vertex_data.reserve(primitive.positions.size() * 5);
+        for (size_t i = 0; i < primitive.positions.size(); ++i) {
+            const Vec3& p = primitive.positions[i];
+            const float x = (p.x - model.bounds_center[0]) * model.bounds_scale;
+            const float y = (p.y - model.bounds_min_y) * model.bounds_scale;
+            const float z = (p.z - model.bounds_center[2]) * model.bounds_scale;
+
+            float u = 0.0f;
+            float v = 0.0f;
+            if (i < primitive.texcoords.size()) {
+                u = primitive.texcoords[i][0];
+                v = 1.0f - primitive.texcoords[i][1];
+            }
+
+            primitive.vertex_data.push_back(x);
+            primitive.vertex_data.push_back(y);
+            primitive.vertex_data.push_back(z);
+            primitive.vertex_data.push_back(u);
+            primitive.vertex_data.push_back(v);
+        }
+
+        model.mesh.primitives.push_back(std::move(primitive));
+    }
+
+    if (!model.clips.empty()) {
+        update_animated_model(model, 0, 0.0f);
+    }
+
+    return true;
+}
+
+bool load_animation_clip(const std::filesystem::path& clip_path, AnimatedModel::Clip& clip, std::string& error) {
+    Assimp::Importer importer;
+    const unsigned int flags = aiProcess_Triangulate | aiProcess_JoinIdenticalVertices;
+    const aiScene* scene = importer.ReadFile(clip_path.string(), flags);
+    if (scene == nullptr || scene->mNumAnimations == 0) {
+        error = "Failed to import animation clip: " + clip_path.string();
+        const char* assimp_error = importer.GetErrorString();
+        if (assimp_error != nullptr && assimp_error[0] != '\0') {
+            error += " (" + std::string(assimp_error) + ")";
+        }
+        return false;
+    }
+
+    const aiAnimation* anim = scene->mAnimations[0];
+    clip = AnimatedModel::Clip{};
+    clip.name = anim->mName.C_Str();
+    clip.duration = static_cast<double>(anim->mDuration);
+    clip.ticks_per_second = anim->mTicksPerSecond > 0.0 ? anim->mTicksPerSecond : 25.0;
+
+    for (unsigned int c = 0; c < anim->mNumChannels; ++c) {
+        const aiNodeAnim* channel = anim->mChannels[c];
+        if (channel == nullptr) {
+            continue;
+        }
+
+        AnimatedModel::Channel out_channel;
+        out_channel.node_name = channel->mNodeName.C_Str();
+        extract_track_keys(channel, out_channel.position_keys, out_channel.rotation_keys, out_channel.scale_keys);
+        clip.channels.push_back(std::move(out_channel));
+    }
+
+    return true;
+}
+
+void update_animated_model(AnimatedModel& model, int clip_index, float time_seconds) {
+    if (model.mesh.primitives.empty()) {
+        return;
+    }
+
+    if (clip_index < 0 || clip_index >= static_cast<int>(model.clips.size()) || model.bones.empty()) {
+        for (auto& primitive : model.mesh.primitives) {
+            primitive.vertex_data.clear();
+            primitive.vertex_data.reserve(primitive.positions.size() * 5);
+            for (size_t i = 0; i < primitive.positions.size(); ++i) {
+                const Vec3& p = primitive.positions[i];
+                const float x = (p.x - model.bounds_center[0]) * model.bounds_scale;
+                const float y = (p.y - model.bounds_min_y) * model.bounds_scale;
+                const float z = (p.z - model.bounds_center[2]) * model.bounds_scale;
+                const float u = (i < primitive.texcoords.size()) ? primitive.texcoords[i][0] : 0.0f;
+                const float v = (i < primitive.texcoords.size()) ? (1.0f - primitive.texcoords[i][1]) : 0.0f;
+                primitive.vertex_data.push_back(x);
+                primitive.vertex_data.push_back(y);
+                primitive.vertex_data.push_back(z);
+                primitive.vertex_data.push_back(u);
+                primitive.vertex_data.push_back(v);
+            }
+        }
+        return;
+    }
+
+    const AnimatedModel::Clip& clip = model.clips[clip_index];
+    double clip_time = time_seconds;
+    if (clip.duration > 0.0) {
+        clip_time = std::fmod(time_seconds * clip.ticks_per_second, clip.duration);
+    }
+
+    std::unordered_map<std::string, const AnimatedModel::Channel*> channel_lookup;
+    for (const auto& channel : clip.channels) {
+        channel_lookup[channel.node_name] = &channel;
+    }
+
+    std::vector<Mat4> global_transforms(model.nodes.size(), identity_mat4());
+
+    std::function<void(int, const Mat4&)> recurse = [&](int node_index, const Mat4& parent_transform) {
+        const auto& node = model.nodes[node_index];
+        Mat4 local = node.local_transform;
+
+        const auto channel_it = channel_lookup.find(node.name);
+        if (channel_it != channel_lookup.end() && channel_it->second != nullptr) {
+            const auto& channel = *channel_it->second;
+            const Vec3 translation = channel.position_keys.empty()
+                ? Vec3{0.0f, 0.0f, 0.0f}
+                : sample_vec3_keys(channel.position_keys, clip_time);
+            const Vec3 scale = channel.scale_keys.empty()
+                ? Vec3{1.0f, 1.0f, 1.0f}
+                : sample_vec3_keys(channel.scale_keys, clip_time);
+            const std::array<float, 4> rotation = channel.rotation_keys.empty()
+                ? std::array<float, 4>{0.0f, 0.0f, 0.0f, 1.0f}
+                : sample_quat_keys(channel.rotation_keys, clip_time);
+            local = compose_trs({translation.x, translation.y, translation.z}, rotation, {scale.x, scale.y, scale.z});
+        }
+
+        global_transforms[node_index] = mul_mat4(parent_transform, local);
+        for (int child_index : node.children) {
+            recurse(child_index, global_transforms[node_index]);
+        }
+    };
+
+    if (!model.nodes.empty()) {
+        recurse(0, identity_mat4());
+    }
+
+    std::vector<Mat4> bone_matrices(model.bones.size(), identity_mat4());
+    for (size_t i = 0; i < model.bones.size(); ++i) {
+        const auto& bone = model.bones[i];
+        if (bone.node_index >= 0 && bone.node_index < static_cast<int>(global_transforms.size())) {
+            bone_matrices[i] = mul_mat4(model.global_inverse, mul_mat4(global_transforms[bone.node_index], bone.offset));
+        }
+    }
+
+    for (auto& primitive : model.mesh.primitives) {
+        primitive.vertex_data.clear();
+        primitive.vertex_data.reserve(primitive.positions.size() * 5);
+
+        for (size_t i = 0; i < primitive.positions.size(); ++i) {
+            Vec3 skinned{};
+            bool has_influence = false;
+
+            const auto& ids = primitive.bone_ids[i];
+            const auto& weights = primitive.bone_weights[i];
+            for (int j = 0; j < 4; ++j) {
+                if (ids[j] < 0 || weights[j] <= 0.0f || ids[j] >= static_cast<int>(bone_matrices.size())) {
+                    continue;
+                }
+                const Vec3 transformed = transform_point(bone_matrices[ids[j]], primitive.positions[i]);
+                skinned = skinned + transformed * weights[j];
+                has_influence = true;
+            }
+
+            if (!has_influence) {
+                skinned = primitive.positions[i];
+            }
+
+            const float x = (skinned.x - model.bounds_center[0]) * model.bounds_scale;
+            const float y = (skinned.y - model.bounds_min_y) * model.bounds_scale;
+            const float z = (skinned.z - model.bounds_center[2]) * model.bounds_scale;
+            const float u = (i < primitive.texcoords.size()) ? primitive.texcoords[i][0] : 0.0f;
+            const float v = (i < primitive.texcoords.size()) ? (1.0f - primitive.texcoords[i][1]) : 0.0f;
+
+            primitive.vertex_data.push_back(x);
+            primitive.vertex_data.push_back(y);
+            primitive.vertex_data.push_back(z);
+            primitive.vertex_data.push_back(u);
+            primitive.vertex_data.push_back(v);
+        }
+    }
+
+    model.node_transforms = global_transforms;
+    model.bone_transforms = bone_matrices;
+}
+
+void free_arena_textures(AnimatedModel& model) {
+    free_arena_textures(model.mesh);
 }
