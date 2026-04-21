@@ -13,5 +13,6 @@ void setup_camera(const GameState& game, int width, int height);
 void render_arena(const ArenaMesh& arena);
 void render_model(const ArenaMesh& model, const Mat4& world_matrix);
 void framebuffer_size_callback(GLFWwindow* window, int width, int height);
+void scroll_callback(GLFWwindow* window, double xoffset, double yoffset);
 
 #endif // GRAPHICS_H

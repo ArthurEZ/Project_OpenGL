@@ -204,8 +204,18 @@ void apply_enemy_soft_separation(GameState& game) {
 
 } // namespace
 
+void scroll_callback(GLFWwindow* window, double xoffset, double yoffset) {
+    GameState* game = static_cast<GameState*>(glfwGetWindowUserPointer(window));
+    if (game) {
+        // Map scroll to target zoom distance changes.
+        game->target_zoom_distance -= static_cast<float>(yoffset) * 1.5f;
+        game->target_zoom_distance = clampf(game->target_zoom_distance, 5.0f, 20.0f);
+    }
+}
+
 int main() {
     if (!glfwInit()) {
+
         std::cerr << "Failed to initialize GLFW\n";
         return EXIT_FAILURE;
     }
@@ -224,8 +234,10 @@ int main() {
     glfwMakeContextCurrent(window);
     glfwSwapInterval(1);
     glfwSetFramebufferSizeCallback(window, framebuffer_size_callback);
+    glfwSetScrollCallback(window, scroll_callback);
 
     const auto arena_path = find_resource("object/arena/scene.gltf");
+
     if (arena_path.empty()) {
         std::cerr << "Could not find arena map: resources/object/arena/scene.gltf\n";
         glfwDestroyWindow(window);
@@ -328,6 +340,7 @@ int main() {
     glViewport(0, 0, width, height);
 
     GameState game;
+    glfwSetWindowUserPointer(window, &game);
     std::mt19937 rng(static_cast<unsigned int>(std::random_device{}()));
     double animation_clock = 0.0;
     bool player_is_moving = false;
@@ -341,6 +354,10 @@ int main() {
         prev_time = now;
         dt = clampf(dt, 0.0f, 0.05f);
         bool should_fire_projectile = false;
+
+        // Visual Smoothing (Interpolation) for camera zoom
+        const float zoom_lerp_speed = 8.0f;
+        game.current_zoom_distance += (game.target_zoom_distance - game.current_zoom_distance) * (zoom_lerp_speed * dt);
 
         if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS) {
             glfwSetWindowShouldClose(window, 1);

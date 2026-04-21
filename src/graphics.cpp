@@ -125,7 +125,7 @@ void setup_camera(const GameState& game, int width, int height) {
 
     glMatrixMode(GL_PROJECTION);
     glLoadIdentity();
-    const float ortho_height = 16.0f;
+    const float ortho_height = game.current_zoom_distance;
     glOrtho(-ortho_height * aspect, ortho_height * aspect, -ortho_height, ortho_height, -120.0, 200.0);
 
     glMatrixMode(GL_MODELVIEW);

@@ -29,6 +29,9 @@ struct GameState {
     bool game_over = false;
     std::vector<Enemy> enemies;
     std::vector<Projectile> projectiles;
+
+    float current_zoom_distance = 16.0f;
+    float target_zoom_distance = 16.0f;
 };
 
 void reset_game(GameState& game);
