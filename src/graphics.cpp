@@ -7,7 +7,7 @@
   #include <GL/gl.h>
 #endif
 
-constexpr float kCameraPitchDegrees = 70.0f;
+constexpr float kCameraPitchDegrees = 62.0f;
 constexpr float kArenaRenderYOffset = -80.0f;
 
 namespace {
@@ -130,7 +130,7 @@ void setup_camera(const GameState& game, int width, int height) {
 
     glMatrixMode(GL_MODELVIEW);
     glLoadIdentity();
-    glTranslatef(0.0f, -7.0f, -34.0f);
+    glTranslatef(0.0f, -6.8f, -34.0f);
     glRotatef(kCameraPitchDegrees, 1.0f, 0.0f, 0.0f);
     glTranslatef(-game.player_position.x, -0.2f, -game.player_position.z);
 }

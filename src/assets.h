@@ -16,6 +16,9 @@ struct ArenaMesh {
     struct Texture {
         std::filesystem::path image_path;
         GLuint gl_id = 0;
+      int embedded_width = 0;
+      int embedded_height = 0;
+      std::vector<unsigned char> embedded_rgba;
     };
 
     struct Primitive {

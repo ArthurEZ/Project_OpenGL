@@ -721,19 +721,27 @@ bool upload_arena_textures(ArenaMesh& mesh, std::string& error) {
     stbi_set_flip_vertically_on_load(1);
 
     for (auto& texture : mesh.textures) {
-        if (texture.image_path.empty()) {
-            continue;
-        }
-
         int width = 0;
         int height = 0;
-        int channels = 0;
-        unsigned char* pixels = stbi_load(texture.image_path.string().c_str(), &width, &height, &channels, 4);
-        if (pixels == nullptr || width <= 0 || height <= 0) {
-            std::cerr << "Texture load warning: " << texture.image_path.string() << " (stb_image failed)\n";
-            if (pixels != nullptr) {
-                stbi_image_free(pixels);
+        unsigned char* decoded_pixels = nullptr;
+        const unsigned char* pixels = nullptr;
+
+        if (!texture.embedded_rgba.empty() && texture.embedded_width > 0 && texture.embedded_height > 0) {
+            width = texture.embedded_width;
+            height = texture.embedded_height;
+            pixels = texture.embedded_rgba.data();
+        } else if (!texture.image_path.empty()) {
+            int channels = 0;
+            decoded_pixels = stbi_load(texture.image_path.string().c_str(), &width, &height, &channels, 4);
+            if (decoded_pixels == nullptr || width <= 0 || height <= 0) {
+                std::cerr << "Texture load warning: " << texture.image_path.string() << " (stb_image failed)\n";
+                if (decoded_pixels != nullptr) {
+                    stbi_image_free(decoded_pixels);
+                }
+                continue;
             }
+            pixels = decoded_pixels;
+        } else {
             continue;
         }
 
@@ -745,7 +753,10 @@ bool upload_arena_textures(ArenaMesh& mesh, std::string& error) {
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
         glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
-        stbi_image_free(pixels);
+
+        if (decoded_pixels != nullptr) {
+            stbi_image_free(decoded_pixels);
+        }
 
         any_loaded = true;
     }
@@ -794,11 +805,15 @@ bool load_static_model_mesh(const std::filesystem::path& model_path, ArenaMesh& 
         std::vector<std::array<float, 2>> texcoords;
         std::vector<unsigned int> indices;
         int base_texture_slot = -1;
+        int emissive_texture_slot = -1;
+        bool alpha_blend = false;
         std::array<float, 4> base_color_factor{1.0f, 1.0f, 1.0f, 1.0f};
+        std::array<float, 3> emissive_factor{0.0f, 0.0f, 0.0f};
     };
 
     std::vector<TempPrimitive> temp_primitives;
     std::vector<Vec3> all_positions;
+    std::unordered_map<std::string, int> texture_slot_by_key;
 
     auto as_mat4 = [](const aiMatrix4x4& in) {
         Mat4 out = {};
@@ -821,14 +836,79 @@ bool load_static_model_mesh(const std::filesystem::path& model_path, ArenaMesh& 
         }
 
         const std::string rel = rel_path.C_Str();
-        if (rel.empty() || rel[0] == '*') {
+        if (rel.empty()) {
             return -1;
         }
 
+        const std::string key = (rel[0] == '*')
+            ? rel
+            : (model_path.parent_path() / rel).lexically_normal().string();
+
+        const auto existing_it = texture_slot_by_key.find(key);
+        if (existing_it != texture_slot_by_key.end()) {
+            return existing_it->second;
+        }
+
         ArenaMesh::Texture texture;
-        texture.image_path = model_path.parent_path() / rel;
-        mesh.textures.push_back(texture);
-        return static_cast<int>(mesh.textures.size() - 1);
+        if (rel[0] == '*') {
+            const aiTexture* embedded = scene->GetEmbeddedTexture(rel.c_str());
+            if (embedded == nullptr || embedded->pcData == nullptr) {
+                return -1;
+            }
+
+            if (embedded->mHeight == 0) {
+                int width = 0;
+                int height = 0;
+                int channels = 0;
+                const unsigned char* encoded_data = reinterpret_cast<const unsigned char*>(embedded->pcData);
+                unsigned char* decoded_pixels = stbi_load_from_memory(
+                    encoded_data,
+                    static_cast<int>(embedded->mWidth),
+                    &width,
+                    &height,
+                    &channels,
+                    4
+                );
+                if (decoded_pixels == nullptr || width <= 0 || height <= 0) {
+                    if (decoded_pixels != nullptr) {
+                        stbi_image_free(decoded_pixels);
+                    }
+                    return -1;
+                }
+
+                texture.embedded_width = width;
+                texture.embedded_height = height;
+                texture.embedded_rgba.assign(
+                    decoded_pixels,
+                    decoded_pixels + static_cast<size_t>(width) * static_cast<size_t>(height) * 4
+                );
+                stbi_image_free(decoded_pixels);
+            } else {
+                const int width = static_cast<int>(embedded->mWidth);
+                const int height = static_cast<int>(embedded->mHeight);
+                if (width <= 0 || height <= 0) {
+                    return -1;
+                }
+
+                texture.embedded_width = width;
+                texture.embedded_height = height;
+                texture.embedded_rgba.resize(static_cast<size_t>(width) * static_cast<size_t>(height) * 4);
+                for (int i = 0; i < width * height; ++i) {
+                    const aiTexel& texel = embedded->pcData[i];
+                    texture.embedded_rgba[static_cast<size_t>(i) * 4 + 0] = texel.r;
+                    texture.embedded_rgba[static_cast<size_t>(i) * 4 + 1] = texel.g;
+                    texture.embedded_rgba[static_cast<size_t>(i) * 4 + 2] = texel.b;
+                    texture.embedded_rgba[static_cast<size_t>(i) * 4 + 3] = texel.a;
+                }
+            }
+        } else {
+            texture.image_path = (model_path.parent_path() / rel).lexically_normal();
+        }
+
+        mesh.textures.push_back(std::move(texture));
+        const int slot = static_cast<int>(mesh.textures.size() - 1);
+        texture_slot_by_key.emplace(key, slot);
+        return slot;
     };
 
     std::function<void(const aiNode*, const aiMatrix4x4&)> visit_node;
@@ -879,7 +959,20 @@ bool load_static_model_mesh(const std::filesystem::path& model_path, ArenaMesh& 
                     if (aiGetMaterialColor(material, AI_MATKEY_COLOR_DIFFUSE, &diffuse) == aiReturn_SUCCESS) {
                         temp.base_color_factor = {diffuse.r, diffuse.g, diffuse.b, diffuse.a};
                     }
+
+                    aiColor3D emissive(0.0f, 0.0f, 0.0f);
+                    if (material->Get(AI_MATKEY_COLOR_EMISSIVE, emissive) == aiReturn_SUCCESS) {
+                        temp.emissive_factor = {emissive.r, emissive.g, emissive.b};
+                    }
+
+                    float opacity = 1.0f;
+                    if (material->Get(AI_MATKEY_OPACITY, opacity) == aiReturn_SUCCESS && opacity < 0.999f) {
+                        temp.alpha_blend = true;
+                        temp.base_color_factor[3] = std::min(temp.base_color_factor[3], opacity);
+                    }
+
                     temp.base_texture_slot = get_material_texture(src_mesh->mMaterialIndex, aiTextureType_DIFFUSE);
+                    temp.emissive_texture_slot = get_material_texture(src_mesh->mMaterialIndex, aiTextureType_EMISSIVE);
                 }
             }
 
@@ -931,7 +1024,10 @@ bool load_static_model_mesh(const std::filesystem::path& model_path, ArenaMesh& 
     for (auto& temp : temp_primitives) {
         ArenaMesh::Primitive primitive;
         primitive.base_texture_slot = temp.base_texture_slot;
+        primitive.emissive_texture_slot = temp.emissive_texture_slot;
+        primitive.alpha_blend = temp.alpha_blend;
         primitive.base_color_factor = temp.base_color_factor;
+        primitive.emissive_factor = temp.emissive_factor;
         primitive.indices = std::move(temp.indices);
         primitive.vertex_data.reserve(temp.positions.size() * 5);
 

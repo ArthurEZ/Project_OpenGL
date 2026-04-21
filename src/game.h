@@ -20,6 +20,7 @@ struct Projectile {
 
 struct GameState {
     Vec3 player_position{0.0f, 0.55f, 0.0f};
+    float player_yaw = 0.0f;
     float player_hp = 100.0f;
     float survival_time = 0.0f;
     int kills = 0;
@@ -32,7 +33,7 @@ struct GameState {
 
 void reset_game(GameState& game);
 void spawn_enemy(GameState& game, float arena_radius, std::mt19937& rng);
-void shoot_at_nearest(GameState& game);
+void shoot_at_nearest(GameState& game, const Vec3& spawn_position);
 void update_window_title(GLFWwindow* window, const GameState& game);
 
 #endif // GAME_H

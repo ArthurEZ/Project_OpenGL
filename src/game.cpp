@@ -34,7 +34,7 @@ void spawn_enemy(GameState& game, float arena_radius, std::mt19937& rng) {
     game.enemies.push_back(enemy);
 }
 
-void shoot_at_nearest(GameState& game) {
+void shoot_at_nearest(GameState& game, const Vec3& spawn_position) {
     if (game.enemies.empty()) {
         return;
     }
@@ -50,14 +50,13 @@ void shoot_at_nearest(GameState& game) {
         }
     }
 
-    const Vec3 dir = normalized(nearest_it->position - game.player_position);
+    const Vec3 dir = normalized(nearest_it->position - spawn_position);
     if (length_sq(dir) < 1e-5f) {
         return;
     }
 
     Projectile p;
-    p.position = game.player_position;
-    p.position.y = 0.85f;
+    p.position = spawn_position;
     p.velocity = dir * 14.0f;
     p.lifetime = 1.1f;
     game.projectiles.push_back(p);

@@ -9,7 +9,6 @@
 #include <random>
 #include <algorithm>
 #include <array>
-#include <limits>
 #ifdef __APPLE__
   #include <OpenGL/gl.h>
 #else
@@ -46,23 +45,161 @@ Mat4 make_rotate_y(float yaw_radians) {
     return m;
 }
 
-bool find_nearest_enemy(const GameState& game, Vec3& nearest_enemy) {
-    if (game.enemies.empty()) {
+Mat4 make_rotate_x(float pitch_radians) {
+    const float c = std::cos(pitch_radians);
+    const float s = std::sin(pitch_radians);
+    Mat4 m = identity_mat4();
+    m.m[5] = c;
+    m.m[9] = -s;
+    m.m[6] = s;
+    m.m[10] = c;
+    return m;
+}
+
+Mat4 make_rotate_z(float roll_radians) {
+    const float c = std::cos(roll_radians);
+    const float s = std::sin(roll_radians);
+    Mat4 m = identity_mat4();
+    m.m[0] = c;
+    m.m[4] = -s;
+    m.m[1] = s;
+    m.m[5] = c;
+    return m;
+}
+
+Vec3 cross_vec3(const Vec3& a, const Vec3& b) {
+    return {
+        a.y * b.z - a.z * b.y,
+        a.z * b.x - a.x * b.z,
+        a.x * b.y - a.y * b.x
+    };
+}
+
+float wrap_angle_pi(float angle) {
+    while (angle > kPi) {
+        angle -= 2.0f * kPi;
+    }
+    while (angle < -kPi) {
+        angle += 2.0f * kPi;
+    }
+    return angle;
+}
+
+float smooth_yaw_towards(float current, float target, float max_step) {
+    const float delta = clampf(wrap_angle_pi(target - current), -max_step, max_step);
+    return wrap_angle_pi(current + delta);
+}
+
+Mat4 make_rigid_transform(const Mat4& m) {
+    Vec3 right = normalized({m.m[0], m.m[1], m.m[2]});
+    Vec3 forward = normalized({m.m[8], m.m[9], m.m[10]});
+    if (length_sq(right) < 1e-6f || length_sq(forward) < 1e-6f) {
+        Mat4 out = identity_mat4();
+        out.m[12] = m.m[12];
+        out.m[13] = m.m[13];
+        out.m[14] = m.m[14];
+        return out;
+    }
+
+    Vec3 up = normalized(cross_vec3(forward, right));
+    if (length_sq(up) < 1e-6f) {
+        up = {0.0f, 1.0f, 0.0f};
+    }
+    right = normalized(cross_vec3(up, forward));
+
+    Mat4 out = identity_mat4();
+    out.m[0] = right.x;
+    out.m[1] = right.y;
+    out.m[2] = right.z;
+    out.m[4] = up.x;
+    out.m[5] = up.y;
+    out.m[6] = up.z;
+    out.m[8] = forward.x;
+    out.m[9] = forward.y;
+    out.m[10] = forward.z;
+    out.m[12] = m.m[12];
+    out.m[13] = m.m[13];
+    out.m[14] = m.m[14];
+    return out;
+}
+
+Mat4 make_player_world_matrix(const GameState& game) {
+    constexpr float kPlayerScale = 3.0f;
+    return mul_mat4(
+        make_translation(game.player_position.x, game.player_position.y - 0.55f, game.player_position.z),
+        mul_mat4(make_rotate_y(game.player_yaw), make_scale(kPlayerScale, kPlayerScale, kPlayerScale))
+    );
+}
+
+bool compute_staff_socket_world(const AnimatedModel& vanguard, const Mat4& player_world, Mat4& out_socket_world) {
+    const auto hand_it = vanguard.node_lookup.find("mixamorig_RightHand");
+    if (hand_it == vanguard.node_lookup.end() || hand_it->second < 0 || hand_it->second >= static_cast<int>(vanguard.node_transforms.size())) {
         return false;
     }
 
-    float best_d2 = std::numeric_limits<float>::max();
-    size_t best_index = 0;
+    const Mat4 hand_model = mul_mat4(vanguard.normalization, vanguard.node_transforms[hand_it->second]);
+    const Mat4 hand_world = mul_mat4(player_world, hand_model);
+    const Mat4 hand_rigid_world = make_rigid_transform(hand_world);
+
+    // Keep the staff at the hand socket origin; only apply a fixed local orientation.
+    const Mat4 staff_local_rotation = mul_mat4(make_rotate_y(0.0f), mul_mat4(make_rotate_x(-0.6f), make_rotate_z(0.0f)));
+    out_socket_world = mul_mat4(hand_rigid_world, staff_local_rotation);
+    return true;
+}
+
+Vec3 compute_staff_tip_from_socket(const Mat4& staff_socket_world) {
+    constexpr float kStaffTipDistance = 1.05f;
+    const Vec3 socket_pos{staff_socket_world.m[12], staff_socket_world.m[13], staff_socket_world.m[14]};
+    Vec3 forward = normalized({staff_socket_world.m[8], staff_socket_world.m[9], staff_socket_world.m[10]});
+    if (length_sq(forward) < 1e-6f) {
+        forward = {0.0f, 0.0f, 1.0f};
+    }
+    return socket_pos + forward * kStaffTipDistance;
+}
+
+void apply_enemy_soft_separation(GameState& game) {
+    constexpr float kEnemyRadius = 0.75f;
+    constexpr float kMinSeparation = kEnemyRadius * 2.0f;
+    constexpr float kMinSeparationSq = kMinSeparation * kMinSeparation;
+
     for (size_t i = 0; i < game.enemies.size(); ++i) {
-        const float d2 = distance_xz_sq(game.player_position, game.enemies[i].position);
-        if (d2 < best_d2) {
-            best_d2 = d2;
-            best_index = i;
+        for (size_t j = i + 1; j < game.enemies.size(); ++j) {
+            float dx = game.enemies[j].position.x - game.enemies[i].position.x;
+            float dz = game.enemies[j].position.z - game.enemies[i].position.z;
+            float dist_sq = dx * dx + dz * dz;
+
+            if (dist_sq >= kMinSeparationSq) {
+                continue;
+            }
+
+            if (dist_sq < 1e-6f) {
+                // Deterministic fallback direction when two enemies are at same point.
+                const float angle = static_cast<float>((i + 1) * (j + 3));
+                dx = std::cos(angle);
+                dz = std::sin(angle);
+                dist_sq = dx * dx + dz * dz;
+            }
+
+            const float dist = std::sqrt(dist_sq);
+            if (dist <= 1e-6f) {
+                continue;
+            }
+
+            const float overlap = kMinSeparation - dist;
+            if (overlap <= 0.0f) {
+                continue;
+            }
+
+            const float nx = dx / dist;
+            const float nz = dz / dist;
+            const float push = overlap * 0.5f;
+
+            game.enemies[i].position.x -= nx * push;
+            game.enemies[i].position.z -= nz * push;
+            game.enemies[j].position.x += nx * push;
+            game.enemies[j].position.z += nz * push;
         }
     }
-
-    nearest_enemy = game.enemies[best_index].position;
-    return true;
 }
 
 } // namespace
@@ -203,6 +340,7 @@ int main() {
         float dt = static_cast<float>(now - prev_time);
         prev_time = now;
         dt = clampf(dt, 0.0f, 0.05f);
+        bool should_fire_projectile = false;
 
         if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS) {
             glfwSetWindowShouldClose(window, 1);
@@ -229,6 +367,13 @@ int main() {
 
             player_is_moving = length_sq(move) > 1e-5f;
             move = normalized(move);
+
+            if (player_is_moving) {
+                const float target_yaw = std::atan2(move.x, move.z);
+                constexpr float kPlayerRotationSpeed = 10.0f;
+                game.player_yaw = smooth_yaw_towards(game.player_yaw, target_yaw, kPlayerRotationSpeed * dt);
+            }
+
             game.player_position = game.player_position + move * (8.0f * dt);
             animation_clock += dt;
 
@@ -251,7 +396,7 @@ int main() {
 
             game.shoot_timer -= dt;
             if (game.shoot_timer <= 0.0f) {
-                shoot_at_nearest(game);
+                should_fire_projectile = true;
                 game.shoot_timer += 0.18f;
             }
 
@@ -259,7 +404,11 @@ int main() {
                 const Vec3 to_player = game.player_position - enemy.position;
                 const Vec3 dir = normalized(to_player);
                 enemy.position = enemy.position + dir * (enemy.speed * dt);
+            }
 
+            apply_enemy_soft_separation(game);
+
+            for (const auto& enemy : game.enemies) {
                 if (distance_xz_sq(enemy.position, game.player_position) < 0.65f * 0.65f) {
                     game.player_hp -= 28.0f * dt;
                 }
@@ -316,6 +465,44 @@ int main() {
             }
         }
 
+        if (game.game_over) {
+            player_is_moving = false;
+        }
+
+        int selected_clip = idle_clip_index;
+        if (player_is_moving && walk_clip_index >= 0) {
+            selected_clip = walk_clip_index;
+        } else if (selected_clip < 0 && walk_clip_index >= 0) {
+            selected_clip = walk_clip_index;
+        }
+
+        if (have_vanguard) {
+            update_animated_model(vanguard, selected_clip, static_cast<float>(animation_clock));
+        }
+
+        const Mat4 player_world = make_player_world_matrix(game);
+
+        Mat4 weapon_socket_world = mul_mat4(player_world, make_translation(0.36f, 0.92f, 0.16f));
+        if (have_staff && have_vanguard) {
+            Mat4 hand_socket_world;
+            if (compute_staff_socket_world(vanguard, player_world, hand_socket_world)) {
+                weapon_socket_world = hand_socket_world;
+            }
+        }
+
+        constexpr float kStaffScale = 0.95f;
+        const Mat4 weapon_world = mul_mat4(weapon_socket_world, make_scale(kStaffScale, kStaffScale, kStaffScale));
+
+        Vec3 projectile_spawn = game.player_position;
+        projectile_spawn.y = 0.85f;
+        if (have_staff) {
+            projectile_spawn = compute_staff_tip_from_socket(weapon_socket_world);
+        }
+
+        if (!game.game_over && should_fire_projectile) {
+            shoot_at_nearest(game, projectile_spawn);
+        }
+
         glfwGetFramebufferSize(window, &width, &height);
         glViewport(0, 0, width, height);
         setup_camera(game, width, height);
@@ -325,50 +512,13 @@ int main() {
 
         render_arena(arena);
 
-        // Player world matrix: translate to game position and scale normalized mesh to gameplay size.
-        const Mat4 player_world = mul_mat4(
-            make_translation(game.player_position.x, game.player_position.y - 0.55f, game.player_position.z),
-            make_scale(2.2f, 2.2f, 2.2f)
-        );
-
         if (have_vanguard) {
-            int selected_clip = idle_clip_index;
-            if (player_is_moving && walk_clip_index >= 0) {
-                selected_clip = walk_clip_index;
-            } else if (selected_clip < 0 && walk_clip_index >= 0) {
-                selected_clip = walk_clip_index;
-            }
-
-            update_animated_model(vanguard, selected_clip, static_cast<float>(animation_clock));
             render_model(vanguard.mesh, player_world);
         } else {
             draw_box(game.player_position, {0.9f, 1.0f, 0.9f}, {0.22f, 0.85f, 0.36f});
         }
 
         if (have_staff) {
-            Vec3 nearest_enemy{};
-            float aim_yaw = 0.0f;
-            if (find_nearest_enemy(game, nearest_enemy)) {
-                const Vec3 to_enemy = nearest_enemy - game.player_position;
-                if ((to_enemy.x * to_enemy.x + to_enemy.z * to_enemy.z) > 1e-5f) {
-                    aim_yaw = std::atan2(to_enemy.x, to_enemy.z);
-                }
-            }
-
-            Mat4 weapon_world = mul_mat4(
-                mul_mat4(player_world, make_translation(0.36f, 0.92f, 0.16f)),
-                make_rotate_y(aim_yaw)
-            );
-
-            if (have_vanguard) {
-                const auto hand_it = vanguard.node_lookup.find("mixamorig_RightHand");
-                if (hand_it != vanguard.node_lookup.end() && hand_it->second >= 0 && hand_it->second < static_cast<int>(vanguard.node_transforms.size())) {
-                    const Mat4 hand_world = mul_mat4(player_world, mul_mat4(vanguard.normalization, vanguard.node_transforms[hand_it->second]));
-                    weapon_world = mul_mat4(hand_world, mul_mat4(make_translation(0.08f, -0.02f, 0.12f), make_rotate_y(aim_yaw)));
-                }
-            }
-
-            weapon_world = mul_mat4(weapon_world, make_scale(0.95f, 0.95f, 0.95f));
             render_model(staff, weapon_world);
         }
 
