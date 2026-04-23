@@ -131,30 +131,141 @@ Mat4 make_player_world_matrix(const GameState& game) {
     );
 }
 
-bool compute_staff_socket_world(const AnimatedModel& vanguard, const Mat4& player_world, Mat4& out_socket_world) {
-    const auto hand_it = vanguard.node_lookup.find("mixamorig_RightHand");
-    if (hand_it == vanguard.node_lookup.end() || hand_it->second < 0 || hand_it->second >= static_cast<int>(vanguard.node_transforms.size())) {
+struct StaffAttachSettings {
+    const char* hand_bone_name = "mixamorig_RightHand";
+    Vec3 local_translation{-0.02f, -0.26f, 0.05f};
+    Vec3 local_rotation_radians{0.18f, 0.22f, 1.48f};
+    float render_scale = 1.55f;
+    float tip_offset = 1.10f; // Unscaled local +Y distance from grip socket to staff tip.
+};
+
+StaffAttachSettings make_walk_staff_attach_settings() {
+    StaffAttachSettings walk{};
+    return walk;
+};
+
+StaffAttachSettings make_idle_staff_attach_settings() {
+    // Keep idle grip matched to walk so the hand stays on the shaft/bar instead of near the head.
+    StaffAttachSettings idle = make_walk_staff_attach_settings();
+    return idle;
+}
+
+Mat4 make_idle_staff_adjustment() {
+    constexpr float kIdlePitchRadians = 0.0f;
+    constexpr float kIdleYawRadians = 0.0f;
+    constexpr float kIdleRollRadians = kPi * 0.5f; // 90 deg around Z to stand staff up relative to grip.
+
+    const Mat4 idle_rotation = mul_mat4(
+        make_rotate_y(kIdleYawRadians),
+        mul_mat4(make_rotate_x(kIdlePitchRadians), make_rotate_z(kIdleRollRadians))
+    );
+
+    // Idle-only local rotation correction. No translation here to avoid drifting away from hand pivot.
+    return idle_rotation;
+}
+
+bool get_world_bone_transform(const AnimatedModel& animated_model, const Mat4& model_world, const char* bone_name, Mat4& out_bone_world) {
+    int node_index = -1;
+
+    const auto model_bone_it = animated_model.bone_lookup.find(bone_name);
+    if (model_bone_it != animated_model.bone_lookup.end()) {
+        const int bone_index = model_bone_it->second;
+        if (bone_index >= 0 && bone_index < static_cast<int>(animated_model.bones.size())) {
+            node_index = animated_model.bones[bone_index].node_index;
+        }
+    }
+
+    if (node_index < 0) {
+        const auto node_it = animated_model.node_lookup.find(bone_name);
+        if (node_it != animated_model.node_lookup.end()) {
+            node_index = node_it->second;
+        }
+    }
+
+    if (node_index < 0) {
+        const std::array<const char*, 3> hand_aliases = {
+            "mixamorig_RightHand",
+            "mixamorig:RightHand",
+            "RightHand"
+        };
+        for (const char* alias : hand_aliases) {
+            const auto alias_bone_it = animated_model.bone_lookup.find(alias);
+            if (alias_bone_it != animated_model.bone_lookup.end()) {
+                const int bone_index = alias_bone_it->second;
+                if (bone_index >= 0 && bone_index < static_cast<int>(animated_model.bones.size())) {
+                    const int mapped_node = animated_model.bones[bone_index].node_index;
+                    if (mapped_node >= 0) {
+                        node_index = mapped_node;
+                        break;
+                    }
+                }
+            }
+
+            const auto alias_node_it = animated_model.node_lookup.find(alias);
+            if (alias_node_it != animated_model.node_lookup.end()) {
+                node_index = alias_node_it->second;
+                break;
+            }
+        }
+    }
+
+    if (node_index < 0 || node_index >= static_cast<int>(animated_model.node_transforms.size())) {
         return false;
     }
 
-    const Mat4 hand_model = mul_mat4(vanguard.normalization, vanguard.node_transforms[hand_it->second]);
-    const Mat4 hand_world = mul_mat4(player_world, hand_model);
-    const Mat4 hand_rigid_world = make_rigid_transform(hand_world);
-
-    // Keep the staff at the hand socket origin; only apply a fixed local orientation.
-    const Mat4 staff_local_rotation = mul_mat4(make_rotate_y(0.0f), mul_mat4(make_rotate_x(-0.6f), make_rotate_z(0.0f)));
-    out_socket_world = mul_mat4(hand_rigid_world, staff_local_rotation);
+    // Keep attachment in the same model space used by skinned vertices:
+    // normalized * (global_inverse * node_global).
+    const Mat4 bone_model_space = mul_mat4(animated_model.global_inverse, animated_model.node_transforms[node_index]);
+    const Mat4 bone_model_normalized = mul_mat4(animated_model.normalization, bone_model_space);
+    out_bone_world = mul_mat4(model_world, bone_model_normalized);
     return true;
 }
 
-Vec3 compute_staff_tip_from_socket(const Mat4& staff_socket_world) {
-    constexpr float kStaffTipDistance = 1.05f;
-    const Vec3 socket_pos{staff_socket_world.m[12], staff_socket_world.m[13], staff_socket_world.m[14]};
-    Vec3 forward = normalized({staff_socket_world.m[8], staff_socket_world.m[9], staff_socket_world.m[10]});
-    if (length_sq(forward) < 1e-6f) {
-        forward = {0.0f, 0.0f, 1.0f};
+Mat4 make_staff_local_offset(const StaffAttachSettings& settings) {
+    const Mat4 local_rotation = mul_mat4(
+        make_rotate_y(settings.local_rotation_radians.y),
+        mul_mat4(make_rotate_x(settings.local_rotation_radians.x), make_rotate_z(settings.local_rotation_radians.z))
+    );
+    return mul_mat4(
+        make_translation(settings.local_translation.x, settings.local_translation.y, settings.local_translation.z),
+        local_rotation
+    );
+}
+
+bool renderStaff(
+    const AnimatedModel& animated_player,
+    const Mat4& player_world,
+    const ArenaMesh& staff,
+    const StaffAttachSettings& settings,
+    const Mat4& local_adjustment,
+    Vec3& out_tip_world,
+    Mat4* out_staff_socket_world = nullptr
+) {
+    Mat4 hand_world = identity_mat4();
+    if (!get_world_bone_transform(animated_player, player_world, settings.hand_bone_name, hand_world)) {
+        return false;
     }
-    return socket_pos + forward * kStaffTipDistance;
+
+    const Mat4 hand_rigid_world = make_rigid_transform(hand_world);
+    // Keep hand translation fixed, then rotate locally so the staff pivots in-place at the grip.
+    const Mat4 staff_socket_world = mul_mat4(
+        mul_mat4(hand_rigid_world, make_staff_local_offset(settings)),
+        local_adjustment
+    );
+
+    // Tip offset is authored in unscaled mesh space, so scale it to match rendered staff size.
+    out_tip_world = transform_point(staff_socket_world, {0.0f, settings.tip_offset * settings.render_scale, 0.0f});
+
+    const Mat4 staff_world = mul_mat4(
+        staff_socket_world,
+        make_scale(settings.render_scale, settings.render_scale, settings.render_scale)
+    );
+    render_model(staff, staff_world);
+
+    if (out_staff_socket_world != nullptr) {
+        *out_staff_socket_world = staff_socket_world;
+    }
+    return true;
 }
 
 void apply_enemy_soft_separation(GameState& game) {
@@ -344,6 +455,8 @@ int main() {
     std::mt19937 rng(static_cast<unsigned int>(std::random_device{}()));
     double animation_clock = 0.0;
     bool player_is_moving = false;
+    const StaffAttachSettings staff_attach_walk_settings = make_walk_staff_attach_settings();
+    const StaffAttachSettings staff_attach_idle_settings = make_idle_staff_attach_settings();
 
     double prev_time = glfwGetTime();
     double title_timer = 0.0;
@@ -499,27 +612,6 @@ int main() {
 
         const Mat4 player_world = make_player_world_matrix(game);
 
-        Mat4 weapon_socket_world = mul_mat4(player_world, make_translation(0.36f, 0.92f, 0.16f));
-        if (have_staff && have_vanguard) {
-            Mat4 hand_socket_world;
-            if (compute_staff_socket_world(vanguard, player_world, hand_socket_world)) {
-                weapon_socket_world = hand_socket_world;
-            }
-        }
-
-        constexpr float kStaffScale = 0.95f;
-        const Mat4 weapon_world = mul_mat4(weapon_socket_world, make_scale(kStaffScale, kStaffScale, kStaffScale));
-
-        Vec3 projectile_spawn = game.player_position;
-        projectile_spawn.y = 0.85f;
-        if (have_staff) {
-            projectile_spawn = compute_staff_tip_from_socket(weapon_socket_world);
-        }
-
-        if (!game.game_over && should_fire_projectile) {
-            shoot_at_nearest(game, projectile_spawn);
-        }
-
         glfwGetFramebufferSize(window, &width, &height);
         glViewport(0, 0, width, height);
         setup_camera(game, width, height);
@@ -535,8 +627,49 @@ int main() {
             draw_box(game.player_position, {0.9f, 1.0f, 0.9f}, {0.22f, 0.85f, 0.36f});
         }
 
+        Vec3 projectile_spawn = game.player_position;
+        projectile_spawn.y = 0.85f;
         if (have_staff) {
-            render_model(staff, weapon_world);
+            const StaffAttachSettings& active_staff_attach_settings = player_is_moving
+                ? staff_attach_walk_settings
+                : staff_attach_idle_settings;
+            const Mat4 staff_pose_adjustment = player_is_moving
+                ? identity_mat4()
+                : make_idle_staff_adjustment();
+
+            bool rendered_from_hand_socket = false;
+            if (have_vanguard) {
+                Vec3 staff_tip_world{};
+                if (renderStaff(vanguard, player_world, staff, active_staff_attach_settings, staff_pose_adjustment, staff_tip_world)) {
+                    projectile_spawn = staff_tip_world;
+                    rendered_from_hand_socket = true;
+                }
+            }
+
+            if (!rendered_from_hand_socket) {
+                const Mat4 fallback_staff_socket = mul_mat4(player_world, make_translation(0.36f, 0.92f, 0.16f));
+                const Mat4 fallback_staff_socket_adjusted = mul_mat4(
+                    mul_mat4(fallback_staff_socket, make_staff_local_offset(active_staff_attach_settings)),
+                    staff_pose_adjustment
+                );
+                projectile_spawn = transform_point(
+                    fallback_staff_socket_adjusted,
+                    {0.0f, active_staff_attach_settings.tip_offset * active_staff_attach_settings.render_scale, 0.0f}
+                );
+                const Mat4 fallback_staff_world = mul_mat4(
+                    fallback_staff_socket_adjusted,
+                    make_scale(
+                        active_staff_attach_settings.render_scale,
+                        active_staff_attach_settings.render_scale,
+                        active_staff_attach_settings.render_scale
+                    )
+                );
+                render_model(staff, fallback_staff_world);
+            }
+        }
+
+        if (!game.game_over && should_fire_projectile) {
+            shoot_at_nearest(game, projectile_spawn);
         }
 
         for (const auto& enemy : game.enemies) {

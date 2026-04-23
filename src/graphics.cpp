@@ -130,9 +130,16 @@ void setup_camera(const GameState& game, int width, int height) {
 
     glMatrixMode(GL_MODELVIEW);
     glLoadIdentity();
-    glTranslatef(0.0f, -6.8f, -34.0f);
+    const float zoom_t = clampf((game.current_zoom_distance - 5.0f) / 15.0f, 0.0f, 1.0f);
+
+    // Keep legacy framing at far zoom, but center the player more aggressively when zooming in.
+    const float camera_base_y = -2.6f + (-6.8f + 2.6f) * zoom_t;
+    const float camera_base_z = -24.0f + (-34.0f + 24.0f) * zoom_t;
+    const float player_focus_y = (-game.player_position.y) + ((-0.2f) - (-game.player_position.y)) * zoom_t;
+
+    glTranslatef(0.0f, camera_base_y, camera_base_z);
     glRotatef(kCameraPitchDegrees, 1.0f, 0.0f, 0.0f);
-    glTranslatef(-game.player_position.x, -0.2f, -game.player_position.z);
+    glTranslatef(-game.player_position.x, player_focus_y, -game.player_position.z);
 }
 
 void render_arena(const ArenaMesh& arena) {
