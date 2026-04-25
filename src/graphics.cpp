@@ -7,10 +7,22 @@
   #include <GL/gl.h>
 #endif
 
+#include <algorithm>
+
 constexpr float kCameraPitchDegrees = 45.0f;
 constexpr float kArenaRenderYOffset = 0.0f;
 
 namespace {
+
+void draw_colored_rect(float left, float top, float right, float bottom, const std::array<float, 3>& color) {
+    glColor3f(color[0], color[1], color[2]);
+    glBegin(GL_QUADS);
+    glVertex2f(left, top);
+    glVertex2f(right, top);
+    glVertex2f(right, bottom);
+    glVertex2f(left, bottom);
+    glEnd();
+}
 
 void render_mesh_primitives(const ArenaMesh& mesh) {
     glEnableClientState(GL_VERTEX_ARRAY);
@@ -118,6 +130,71 @@ void draw_box(const Vec3& center, const Vec3& size, const std::array<float, 3>& 
     glVertex3f(center.x + hx, center.y - hy, center.z + hz);
     glVertex3f(center.x - hx, center.y - hy, center.z + hz);
     glEnd();
+}
+
+void begin_screen_space(int width, int height) {
+    glMatrixMode(GL_PROJECTION);
+    glPushMatrix();
+    glLoadIdentity();
+    glOrtho(0.0, static_cast<double>(width), static_cast<double>(height), 0.0, -1.0, 1.0);
+
+    glMatrixMode(GL_MODELVIEW);
+    glPushMatrix();
+    glLoadIdentity();
+
+    glDisable(GL_DEPTH_TEST);
+    glDisable(GL_TEXTURE_2D);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+}
+
+void end_screen_space() {
+    glDisable(GL_BLEND);
+    glEnable(GL_DEPTH_TEST);
+
+    glMatrixMode(GL_MODELVIEW);
+    glPopMatrix();
+
+    glMatrixMode(GL_PROJECTION);
+    glPopMatrix();
+
+    glMatrixMode(GL_MODELVIEW);
+}
+
+void draw_health_bar_world(const Vec3& center, float width, float height, float t) {
+    const float clamped_t = clampf(t, 0.0f, 1.0f);
+    const float half_w = width * 0.5f;
+    const float half_h = height * 0.5f;
+    const float fill_right = center.x - half_w + width * clamped_t;
+
+    glDisable(GL_TEXTURE_2D);
+    glBegin(GL_QUADS);
+    glColor4f(0.08f, 0.08f, 0.08f, 0.85f);
+    glVertex3f(center.x - half_w, center.y - half_h, center.z);
+    glVertex3f(center.x + half_w, center.y - half_h, center.z);
+    glVertex3f(center.x + half_w, center.y + half_h, center.z);
+    glVertex3f(center.x - half_w, center.y + half_h, center.z);
+
+    glColor4f(1.0f - clamped_t, 0.85f * clamped_t + 0.15f, 0.15f, 0.95f);
+    glVertex3f(center.x - half_w, center.y - half_h, center.z + 0.001f);
+    glVertex3f(fill_right, center.y - half_h, center.z + 0.001f);
+    glVertex3f(fill_right, center.y + half_h, center.z + 0.001f);
+    glVertex3f(center.x - half_w, center.y + half_h, center.z + 0.001f);
+    glEnd();
+}
+
+void draw_health_bar_screen(float x, float y, float width, float height, float t) {
+    const float clamped_t = clampf(t, 0.0f, 1.0f);
+    const float fill_width = width * clamped_t;
+
+    draw_colored_rect(x, y, x + width, y + height, {0.08f, 0.08f, 0.08f});
+    draw_colored_rect(
+        x + 2.0f,
+        y + 2.0f,
+        x + 2.0f + std::max(0.0f, fill_width - 4.0f),
+        y + height - 2.0f,
+        {1.0f - clamped_t, 0.85f * clamped_t + 0.15f, 0.15f}
+    );
 }
 
 void setup_camera(const GameState& game, int width, int height) {

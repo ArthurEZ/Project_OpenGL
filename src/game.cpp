@@ -31,6 +31,8 @@ void spawn_enemy(GameState& game, float arena_radius, std::mt19937& rng) {
     Enemy enemy;
     enemy.position = spawn;
     enemy.speed = 1.8f + std::min(3.2f, game.survival_time * 0.035f);
+    enemy.hp = 60.0f;
+    enemy.max_hp = 60.0f;
     game.enemies.push_back(enemy);
 }
 

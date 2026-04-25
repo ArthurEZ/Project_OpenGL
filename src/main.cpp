@@ -655,7 +655,7 @@ int main() {
 
             game.survival_time += dt;
 
-            const float spawn_interval = std::max(0.28f, 0.85f - game.survival_time * 0.006f);
+            const float spawn_interval = std::max(0.18f, 0.55f - game.survival_time * 0.008f);
             game.spawn_timer -= dt;
             if (game.spawn_timer <= 0.0f) {
                 spawn_enemy(game, arena.radius, rng);
@@ -724,9 +724,12 @@ int main() {
                         continue;
                     }
                     if (distance_xz_sq(p.position, game.enemies[i].position) < 0.75f * 0.75f) {
-                        enemy_alive[i] = 0;
+                        game.enemies[i].hp -= 30.0f;
                         p.lifetime = 0.0f;
-                        ++game.kills;
+                        if (game.enemies[i].hp <= 0.0f) {
+                            enemy_alive[i] = 0;
+                            ++game.kills;
+                        }
                         break;
                     }
                 }
@@ -844,6 +847,15 @@ int main() {
         for (const auto& projectile : game.projectiles) {
             draw_box(projectile.position, {0.25f, 0.25f, 0.25f}, {1.0f, 0.86f, 0.35f});
         }
+
+        for (const auto& enemy : game.enemies) {
+            const float hp_ratio = (enemy.max_hp > 0.0f) ? (enemy.hp / enemy.max_hp) : 0.0f;
+            draw_health_bar_world({enemy.position.x, enemy.position.y + 1.25f, enemy.position.z}, 0.95f, 0.12f, hp_ratio);
+        }
+
+        begin_screen_space(width, height);
+        draw_health_bar_screen(18.0f, 18.0f, 240.0f, 18.0f, game.player_hp / 100.0f);
+        end_screen_space();
 
         glfwSwapBuffers(window);
         glfwPollEvents();

@@ -10,6 +10,8 @@
 struct Enemy {
     Vec3 position;
     float speed = 2.4f;
+    float hp = 60.0f;
+    float max_hp = 60.0f;
 };
 
 struct Projectile {
