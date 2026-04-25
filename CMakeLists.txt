@@ -27,10 +27,31 @@ if(APPLE)
     include_directories(${ASSIMP_INCLUDE_DIR})
     message(STATUS "FORCING Homebrew ASSIMP from ${ASSIMP_INCLUDE_DIR}")
 else()
-    find_package(ASSIMP REQUIRED)
-    set(ASSIMP_LIBRARY ${ASSIMP_LIBRARIES})
-    include_directories(${ASSIMP_INCLUDE_DIRS})
-    message(STATUS "Found ASSIMP in ${ASSIMP_INCLUDE_DIR}")
+    find_package(ASSIMP QUIET)
+    if(ASSIMP_FOUND)
+        set(ASSIMP_LIBRARY ${ASSIMP_LIBRARIES})
+        include_directories(${ASSIMP_INCLUDE_DIRS})
+        message(STATUS "Found ASSIMP in ${ASSIMP_INCLUDE_DIRS}")
+    else()
+        message(STATUS "ASSIMP not found on system. Fetching ASSIMP from source...")
+        set(ASSIMP_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+        set(ASSIMP_BUILD_ASSIMP_TOOLS OFF CACHE BOOL "" FORCE)
+        set(ASSIMP_NO_EXPORT ON CACHE BOOL "" FORCE)
+        set(ASSIMP_INSTALL OFF CACHE BOOL "" FORCE)
+                set(ASSIMP_WARNINGS_AS_ERRORS OFF CACHE BOOL "" FORCE)
+        FetchContent_Declare(
+          assimp
+          URL https://github.com/assimp/assimp/archive/refs/tags/v5.4.3.zip
+                    DOWNLOAD_EXTRACT_TIMESTAMP FALSE
+        )
+        FetchContent_MakeAvailable(assimp)
+        set(ASSIMP_LIBRARY assimp)
+        include_directories(
+            ${assimp_BINARY_DIR}/include
+            ${assimp_SOURCE_DIR}/include
+        )
+        message(STATUS "Using fetched ASSIMP from ${assimp_SOURCE_DIR}")
+    endif()
 endif()
 
 FetchContent_MakeAvailable(glfw)
@@ -88,6 +109,29 @@ endif()
 
 if(WIN32)
     target_link_libraries(opengl_starter PRIVATE gdiplus)
+
+    # Ensure runtime DLLs from shared dependencies are beside the executable.
+    if(TARGET glfw)
+        add_custom_command(TARGET opengl_starter POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            $<TARGET_FILE:glfw>
+            $<TARGET_FILE_DIR:opengl_starter>
+        )
+    endif()
+
+    if(TARGET assimp)
+        add_custom_command(TARGET opengl_starter POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            $<TARGET_FILE:assimp>
+            $<TARGET_FILE_DIR:opengl_starter>
+        )
+    elseif(TARGET assimp::assimp)
+        add_custom_command(TARGET opengl_starter POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            $<TARGET_FILE:assimp::assimp>
+            $<TARGET_FILE_DIR:opengl_starter>
+        )
+    endif()
 endif()
 
 if(WIN32 AND CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
