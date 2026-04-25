@@ -6,6 +6,7 @@
 #include <iostream>
 #include <cstdlib>
 #include <cmath>
+#include <cctype>
 #include <random>
 #include <algorithm>
 #include <array>
@@ -17,6 +18,10 @@
 #include <GLFW/glfw3.h>
 
 namespace {
+
+struct GroundTriangle;
+
+bool sample_ground_y(const std::vector<GroundTriangle>& triangles, float x, float z, float& out_y);
 
 Mat4 make_translation(float x, float y, float z) {
     Mat4 m = identity_mat4();
@@ -88,6 +93,75 @@ float wrap_angle_pi(float angle) {
 float smooth_yaw_towards(float current, float target, float max_step) {
     const float delta = clampf(wrap_angle_pi(target - current), -max_step, max_step);
     return wrap_angle_pi(current + delta);
+}
+
+constexpr float kPlayerFootOffset = 0.55f;
+
+void place_player_on_ground(GameState& game, const std::vector<GroundTriangle>& ground_triangles) {
+    float ground_y = 0.0f;
+    if (sample_ground_y(ground_triangles, game.player_position.x, game.player_position.z, ground_y)) {
+        game.player_position.y = ground_y + kPlayerFootOffset;
+    }
+}
+
+void restart_game(GameState& game, const std::vector<GroundTriangle>& ground_triangles) {
+    reset_game(game);
+    place_player_on_ground(game, ground_triangles);
+}
+
+const std::array<unsigned char, 7>& glyph_rows(char c) {
+    switch (static_cast<char>(std::toupper(static_cast<unsigned char>(c)))) {
+        case 'A': { static const std::array<unsigned char, 7> rows{{0x0E, 0x11, 0x11, 0x1F, 0x11, 0x11, 0x11}}; return rows; }
+        case 'E': { static const std::array<unsigned char, 7> rows{{0x1F, 0x10, 0x10, 0x1E, 0x10, 0x10, 0x1F}}; return rows; }
+        case 'G': { static const std::array<unsigned char, 7> rows{{0x0E, 0x11, 0x10, 0x13, 0x11, 0x11, 0x0E}}; return rows; }
+        case 'M': { static const std::array<unsigned char, 7> rows{{0x11, 0x1B, 0x15, 0x11, 0x11, 0x11, 0x11}}; return rows; }
+        case 'O': { static const std::array<unsigned char, 7> rows{{0x0E, 0x11, 0x11, 0x11, 0x11, 0x11, 0x0E}}; return rows; }
+        case 'R': { static const std::array<unsigned char, 7> rows{{0x1E, 0x11, 0x11, 0x1E, 0x14, 0x12, 0x11}}; return rows; }
+        case 'S': { static const std::array<unsigned char, 7> rows{{0x0F, 0x10, 0x10, 0x0E, 0x01, 0x01, 0x1E}}; return rows; }
+        case 'T': { static const std::array<unsigned char, 7> rows{{0x1F, 0x04, 0x04, 0x04, 0x04, 0x04, 0x04}}; return rows; }
+        case 'V': { static const std::array<unsigned char, 7> rows{{0x11, 0x11, 0x11, 0x11, 0x0A, 0x0A, 0x04}}; return rows; }
+        case '!': { static const std::array<unsigned char, 7> rows{{0x04, 0x04, 0x04, 0x04, 0x04, 0x00, 0x04}}; return rows; }
+        case ' ': { static const std::array<unsigned char, 7> rows{{0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}}; return rows; }
+        default:  { static const std::array<unsigned char, 7> rows{{0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}}; return rows; }
+    }
+}
+
+float text_width(const std::string& text, float scale) {
+    if (text.empty()) {
+        return 0.0f;
+    }
+    return static_cast<float>(text.size()) * (scale * 6.0f) - scale;
+}
+
+void draw_text_screen(float x, float y, float scale, const std::string& text, const std::array<float, 3>& color) {
+    glColor4f(color[0], color[1], color[2], 1.0f);
+    float cursor_x = x;
+
+    for (char c : text) {
+        const auto& rows = glyph_rows(c);
+        for (size_t row = 0; row < rows.size(); ++row) {
+            for (int col = 0; col < 5; ++col) {
+                const unsigned char mask = static_cast<unsigned char>(1u << (4 - col));
+                if ((rows[row] & mask) == 0) {
+                    continue;
+                }
+
+                const float px = cursor_x + static_cast<float>(col) * scale;
+                const float py = y + static_cast<float>(row) * scale;
+                glBegin(GL_QUADS);
+                glVertex2f(px, py);
+                glVertex2f(px + scale, py);
+                glVertex2f(px + scale, py + scale);
+                glVertex2f(px, py + scale);
+                glEnd();
+            }
+        }
+        cursor_x += scale * 6.0f;
+    }
+}
+
+bool point_in_rect(float x, float y, float left, float top, float right, float bottom) {
+    return x >= left && x <= right && y >= top && y <= bottom;
 }
 
 Mat4 make_rigid_transform(const Mat4& m) {
@@ -563,6 +637,7 @@ int main() {
 
     double prev_time = glfwGetTime();
     double title_timer = 0.0;
+    bool restart_mouse_down_last_frame = false;
 
     while (!glfwWindowShouldClose(window)) {
         const double now = glfwGetTime();
@@ -580,7 +655,7 @@ int main() {
         }
 
         if (game.game_over && glfwGetKey(window, GLFW_KEY_R) == GLFW_PRESS) {
-            reset_game(game);
+            restart_game(game, ground_triangles);
         }
 
         if (!game.game_over) {
@@ -765,6 +840,8 @@ int main() {
 
         if (game.game_over) {
             player_is_moving = false;
+        } else {
+            restart_mouse_down_last_frame = false;
         }
 
         int selected_clip = idle_clip_index;
@@ -854,7 +931,74 @@ int main() {
         }
 
         begin_screen_space(width, height);
-        draw_health_bar_screen(18.0f, 18.0f, 240.0f, 18.0f, game.player_hp / 100.0f);
+
+        if (!game.game_over) {
+            draw_health_bar_screen(18.0f, 18.0f, 240.0f, 18.0f, game.player_hp / 100.0f);
+        } else {
+            glColor4f(0.0f, 0.0f, 0.0f, 0.60f);
+            glBegin(GL_QUADS);
+            glVertex2f(0.0f, 0.0f);
+            glVertex2f(static_cast<float>(width), 0.0f);
+            glVertex2f(static_cast<float>(width), static_cast<float>(height));
+            glVertex2f(0.0f, static_cast<float>(height));
+            glEnd();
+
+            const float title_scale = 8.0f;
+            const std::string game_over_text = "GAME OVER!";
+            draw_text_screen(
+                (static_cast<float>(width) - text_width(game_over_text, title_scale)) * 0.5f,
+                static_cast<float>(height) * 0.30f,
+                title_scale,
+                game_over_text,
+                {1.0f, 0.92f, 0.92f}
+            );
+
+            const float button_width = 260.0f;
+            const float button_height = 58.0f;
+            const float button_left = (static_cast<float>(width) - button_width) * 0.5f;
+            const float button_top = static_cast<float>(height) * 0.50f;
+            const float button_right = button_left + button_width;
+            const float button_bottom = button_top + button_height;
+
+            double cursor_x = 0.0;
+            double cursor_y = 0.0;
+            glfwGetCursorPos(window, &cursor_x, &cursor_y);
+            const bool mouse_down = glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS;
+            const bool hovered = point_in_rect(static_cast<float>(cursor_x), static_cast<float>(cursor_y), button_left, button_top, button_right, button_bottom);
+
+            glColor4f(0.12f, 0.12f, 0.12f, hovered ? 0.95f : 0.80f);
+            glBegin(GL_QUADS);
+            glVertex2f(button_left, button_top);
+            glVertex2f(button_right, button_top);
+            glVertex2f(button_right, button_bottom);
+            glVertex2f(button_left, button_bottom);
+            glEnd();
+
+            glColor4f(1.0f, 1.0f, 1.0f, 0.65f);
+            glBegin(GL_LINE_LOOP);
+            glVertex2f(button_left, button_top);
+            glVertex2f(button_right, button_top);
+            glVertex2f(button_right, button_bottom);
+            glVertex2f(button_left, button_bottom);
+            glEnd();
+
+            const float button_text_scale = 6.0f;
+            const std::string restart_text = "RESTART";
+            draw_text_screen(
+                button_left + (button_width - text_width(restart_text, button_text_scale)) * 0.5f,
+                button_top + (button_height - 7.0f * button_text_scale) * 0.5f - 2.0f,
+                button_text_scale,
+                restart_text,
+                {0.97f, 0.97f, 0.97f}
+            );
+
+            if (mouse_down && !restart_mouse_down_last_frame && hovered) {
+                restart_game(game, ground_triangles);
+            }
+
+            restart_mouse_down_last_frame = mouse_down;
+        }
+
         end_screen_space();
 
         glfwSwapBuffers(window);
