@@ -7,8 +7,8 @@
   #include <GL/gl.h>
 #endif
 
-constexpr float kCameraPitchDegrees = 62.0f;
-constexpr float kArenaRenderYOffset = -80.0f;
+constexpr float kCameraPitchDegrees = 45.0f;
+constexpr float kArenaRenderYOffset = 0.0f;
 
 namespace {
 

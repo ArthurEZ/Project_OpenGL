@@ -268,6 +268,97 @@ bool renderStaff(
     return true;
 }
 
+struct GroundTriangle {
+    Vec3 a{};
+    Vec3 b{};
+    Vec3 c{};
+};
+
+std::vector<GroundTriangle> build_ground_triangles(const ArenaMesh& arena) {
+    std::vector<GroundTriangle> triangles;
+    triangles.reserve(arena.primitives.size() * 64);
+
+    constexpr float kWalkableNormalY = 0.45f;
+    for (const auto& primitive : arena.primitives) {
+        if (primitive.indices.size() < 3 || primitive.vertex_data.empty()) {
+            continue;
+        }
+
+        const auto read_position = [&](unsigned int index, Vec3& out_pos) -> bool {
+            const size_t base = static_cast<size_t>(index) * 5;
+            if (base + 2 >= primitive.vertex_data.size()) {
+                return false;
+            }
+            out_pos = {
+                primitive.vertex_data[base + 0],
+                primitive.vertex_data[base + 1],
+                primitive.vertex_data[base + 2]
+            };
+            return true;
+        };
+
+        for (size_t i = 0; i + 2 < primitive.indices.size(); i += 3) {
+            Vec3 a{};
+            Vec3 b{};
+            Vec3 c{};
+            if (!read_position(primitive.indices[i], a) ||
+                !read_position(primitive.indices[i + 1], b) ||
+                !read_position(primitive.indices[i + 2], c)) {
+                continue;
+            }
+
+            const Vec3 normal = normalized(cross_vec3(b - a, c - a));
+            if (length_sq(normal) < 1e-8f || normal.y < kWalkableNormalY) {
+                continue;
+            }
+
+            triangles.push_back({a, b, c});
+        }
+    }
+
+    return triangles;
+}
+
+bool sample_ground_y(const std::vector<GroundTriangle>& triangles, float x, float z, float& out_y) {
+    bool found = false;
+    float best_y = -1e9f;
+
+    for (const auto& tri : triangles) {
+        const float ax = tri.a.x;
+        const float az = tri.a.z;
+        const float bx = tri.b.x;
+        const float bz = tri.b.z;
+        const float cx = tri.c.x;
+        const float cz = tri.c.z;
+
+        const float denom = (bz - cz) * (ax - cx) + (cx - bx) * (az - cz);
+        if (std::fabs(denom) < 1e-6f) {
+            continue;
+        }
+
+        const float w0 = ((bz - cz) * (x - cx) + (cx - bx) * (z - cz)) / denom;
+        const float w1 = ((cz - az) * (x - cx) + (ax - cx) * (z - cz)) / denom;
+        const float w2 = 1.0f - w0 - w1;
+        constexpr float kEpsilon = -1e-4f;
+        if (w0 < kEpsilon || w1 < kEpsilon || w2 < kEpsilon) {
+            continue;
+        }
+
+        const float y = w0 * tri.a.y + w1 * tri.b.y + w2 * tri.c.y;
+        if (!found || y > best_y) {
+            best_y = y;
+            found = true;
+        }
+    }
+
+    if (!found) {
+        return false;
+    }
+
+    out_y = best_y;
+    return true;
+}
+
 void apply_enemy_soft_separation(GameState& game) {
     constexpr float kEnemyRadius = 0.75f;
     constexpr float kMinSeparation = kEnemyRadius * 2.0f;
@@ -365,6 +456,11 @@ int main() {
         return EXIT_FAILURE;
     }
 
+    const std::vector<GroundTriangle> ground_triangles = build_ground_triangles(arena);
+    if (ground_triangles.empty()) {
+        std::cerr << "Ground sampling warning: no walkable triangles detected.\n";
+    }
+
     std::string texture_error;
     if (!upload_arena_textures(arena, texture_error)) {
         std::cerr << "Arena textures unavailable: " << texture_error << '\n';
@@ -451,6 +547,13 @@ int main() {
     glViewport(0, 0, width, height);
 
     GameState game;
+    {
+        float initial_ground_y = 0.0f;
+        constexpr float kPlayerFootOffset = 0.55f;
+        if (sample_ground_y(ground_triangles, game.player_position.x, game.player_position.z, initial_ground_y)) {
+            game.player_position.y = initial_ground_y + kPlayerFootOffset;
+        }
+    }
     glfwSetWindowUserPointer(window, &game);
     std::mt19937 rng(static_cast<unsigned int>(std::random_device{}()));
     double animation_clock = 0.0;
@@ -481,6 +584,11 @@ int main() {
         }
 
         if (!game.game_over) {
+            constexpr float kPlayerFootOffset = 0.55f;
+            constexpr float kEnemyFootOffset = 0.45f;
+            constexpr float kCharacterHeight = 1.8f;
+            constexpr float kMaxStepHeight = kCharacterHeight * 0.5f;
+
             Vec3 move{};
             if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS) {
                 move.z -= 1.0f;
@@ -504,15 +612,45 @@ int main() {
                 game.player_yaw = smooth_yaw_towards(game.player_yaw, target_yaw, kPlayerRotationSpeed * dt);
             }
 
-            game.player_position = game.player_position + move * (8.0f * dt);
+            const Vec3 previous_player_position = game.player_position;
+            const Vec3 proposed_player_position = game.player_position + move * (8.0f * dt);
             animation_clock += dt;
 
-            const float max_player_radius = arena.radius * 0.25f;
-            const float r = std::sqrt(game.player_position.x * game.player_position.x + game.player_position.z * game.player_position.z);
+            const float max_player_radius = arena.radius * 0.5f;
+            constexpr float kPlayableCenterX = 0.0f;
+            constexpr float kPlayableCenterZ = 0.0f;
+
+            float current_ground_y = 0.0f;
+            const bool have_current_ground = sample_ground_y(ground_triangles, previous_player_position.x, previous_player_position.z, current_ground_y);
+
+            Vec3 next_player_position = proposed_player_position;
+            const float to_center_x = next_player_position.x - kPlayableCenterX;
+            const float to_center_z = next_player_position.z - kPlayableCenterZ;
+            const float r = std::sqrt(to_center_x * to_center_x + to_center_z * to_center_z);
             if (r > max_player_radius) {
                 const float inv = max_player_radius / r;
-                game.player_position.x *= inv;
-                game.player_position.z *= inv;
+                next_player_position.x = kPlayableCenterX + to_center_x * inv;
+                next_player_position.z = kPlayableCenterZ + to_center_z * inv;
+            }
+
+            float next_ground_y = 0.0f;
+            const bool have_next_ground = sample_ground_y(ground_triangles, next_player_position.x, next_player_position.z, next_ground_y);
+
+            if (have_current_ground && have_next_ground && (next_ground_y - current_ground_y) > kMaxStepHeight) {
+                next_player_position.x = previous_player_position.x;
+                next_player_position.z = previous_player_position.z;
+                next_ground_y = current_ground_y;
+            }
+
+            game.player_position = next_player_position;
+
+            {
+                float ground_y = 0.0f;
+                if (have_next_ground) {
+                    game.player_position.y = next_ground_y + kPlayerFootOffset;
+                } else if (sample_ground_y(ground_triangles, game.player_position.x, game.player_position.z, ground_y)) {
+                    game.player_position.y = ground_y + kPlayerFootOffset;
+                }
             }
 
             game.survival_time += dt;
@@ -531,9 +669,36 @@ int main() {
             }
 
             for (auto& enemy : game.enemies) {
+                const Vec3 previous_enemy_position = enemy.position;
                 const Vec3 to_player = game.player_position - enemy.position;
                 const Vec3 dir = normalized(to_player);
-                enemy.position = enemy.position + dir * (enemy.speed * dt);
+                Vec3 next_enemy_position = enemy.position + dir * (enemy.speed * dt);
+
+                float current_enemy_ground_y = 0.0f;
+                float next_enemy_ground_y = 0.0f;
+                const bool have_current_enemy_ground = sample_ground_y(
+                    ground_triangles,
+                    previous_enemy_position.x,
+                    previous_enemy_position.z,
+                    current_enemy_ground_y
+                );
+                const bool have_next_enemy_ground = sample_ground_y(
+                    ground_triangles,
+                    next_enemy_position.x,
+                    next_enemy_position.z,
+                    next_enemy_ground_y
+                );
+
+                if (have_current_enemy_ground && have_next_enemy_ground && (next_enemy_ground_y - current_enemy_ground_y) > kMaxStepHeight) {
+                    next_enemy_position.x = previous_enemy_position.x;
+                    next_enemy_position.z = previous_enemy_position.z;
+                    next_enemy_ground_y = current_enemy_ground_y;
+                }
+
+                enemy.position = next_enemy_position;
+                if (have_next_enemy_ground) {
+                    enemy.position.y = next_enemy_ground_y + kEnemyFootOffset;
+                }
             }
 
             apply_enemy_soft_separation(game);
