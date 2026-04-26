@@ -971,7 +971,11 @@ bool load_static_model_mesh(const std::filesystem::path& model_path, ArenaMesh& 
                         temp.base_color_factor[3] = std::min(temp.base_color_factor[3], opacity);
                     }
 
-                    temp.base_texture_slot = get_material_texture(src_mesh->mMaterialIndex, aiTextureType_DIFFUSE);
+                    int base_slot = get_material_texture(src_mesh->mMaterialIndex, aiTextureType_BASE_COLOR);
+                    if (base_slot < 0) {
+                        base_slot = get_material_texture(src_mesh->mMaterialIndex, aiTextureType_DIFFUSE);
+                    }
+                    temp.base_texture_slot = base_slot;
                     temp.emissive_texture_slot = get_material_texture(src_mesh->mMaterialIndex, aiTextureType_EMISSIVE);
                 }
             }
@@ -1284,15 +1288,26 @@ bool load_animated_model(const std::filesystem::path& model_path, AnimatedModel&
                 if (aiGetMaterialColor(material, AI_MATKEY_COLOR_DIFFUSE, &diffuse) == aiReturn_SUCCESS) {
                     temp.base_color_factor = {diffuse.r, diffuse.g, diffuse.b, diffuse.a};
                 }
-                if (material->GetTextureCount(aiTextureType_DIFFUSE) > 0) {
+                int base_slot = -1;
+                if (material->GetTextureCount(aiTextureType_BASE_COLOR) > 0) {
+                    aiString rel_path;
+                    if (material->GetTexture(aiTextureType_BASE_COLOR, 0, &rel_path) == aiReturn_SUCCESS && rel_path.length > 0 && rel_path.C_Str()[0] != '*') {
+                        ArenaMesh::Texture texture;
+                        texture.image_path = model_path.parent_path() / rel_path.C_Str();
+                        model.mesh.textures.push_back(texture);
+                        base_slot = static_cast<int>(model.mesh.textures.size() - 1);
+                    }
+                }
+                if (base_slot < 0 && material->GetTextureCount(aiTextureType_DIFFUSE) > 0) {
                     aiString rel_path;
                     if (material->GetTexture(aiTextureType_DIFFUSE, 0, &rel_path) == aiReturn_SUCCESS && rel_path.length > 0 && rel_path.C_Str()[0] != '*') {
                         ArenaMesh::Texture texture;
                         texture.image_path = model_path.parent_path() / rel_path.C_Str();
                         model.mesh.textures.push_back(texture);
-                        temp.base_texture_slot = static_cast<int>(model.mesh.textures.size() - 1);
+                        base_slot = static_cast<int>(model.mesh.textures.size() - 1);
                     }
                 }
+                temp.base_texture_slot = base_slot;
             }
         }
 

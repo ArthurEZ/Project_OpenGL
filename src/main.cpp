@@ -96,6 +96,8 @@ float smooth_yaw_towards(float current, float target, float max_step) {
 }
 
 constexpr float kPlayerFootOffset = 0.55f;
+constexpr float kEnemyRenderScale = 1.0f;
+constexpr float kEnemyYawFixRadians = 0.0f;
 
 void place_player_on_ground(GameState& game, const std::vector<GroundTriangle>& ground_triangles) {
     float ground_y = 0.0f;
@@ -236,6 +238,13 @@ Mat4 make_idle_staff_adjustment() {
 
     // Idle-only local rotation correction. No translation here to avoid drifting away from hand pivot.
     return idle_rotation;
+}
+
+Mat4 make_enemy_local_transform() {
+    return mul_mat4(
+        make_rotate_y(kEnemyYawFixRadians),
+        make_scale(kEnemyRenderScale, kEnemyRenderScale, kEnemyRenderScale)
+    );
 }
 
 bool get_world_bone_transform(const AnimatedModel& animated_model, const Mat4& model_world, const char* bone_name, Mat4& out_bone_world) {
@@ -546,11 +555,14 @@ int main() {
     const auto vanguard_path = find_resource("object/mixamo/Vanguard By T. Choonyung/Vanguard By T. Choonyung.dae");
     const auto vanguard_idle_path = find_resource("object/mixamo/Great Sword Idle.dae");
     const auto vanguard_walk_path = find_resource("object/mixamo/Standing Walk Forward.dae");
+    const auto enemy_path = find_resource("object/enemy_spider_leela/Leela.gltf");
     const auto staff_path = find_resource("object/staff/as-vulcan_scarlet_lance_-_3d_model_stylized.glb");
 
     AnimatedModel vanguard;
+    ArenaMesh enemy_mesh;
     ArenaMesh staff;
     bool have_vanguard = false;
+    bool have_enemy = false;
     bool have_staff = false;
 
     if (!vanguard_path.empty()) {
@@ -561,6 +573,16 @@ int main() {
         }
     } else {
         std::cerr << "Could not find Vanguard model file.\n";
+    }
+
+    if (!enemy_path.empty()) {
+        std::string model_error;
+        have_enemy = load_static_model_mesh(enemy_path, enemy_mesh, model_error);
+        if (!have_enemy) {
+            std::cerr << "Failed to load Enemy: " << model_error << '\n';
+        }
+    } else {
+        std::cerr << "Could not find Enemy model file.\n";
     }
 
     if (!staff_path.empty()) {
@@ -577,6 +599,13 @@ int main() {
         std::string model_texture_error;
         if (!upload_arena_textures(vanguard.mesh, model_texture_error)) {
             std::cerr << "Vanguard textures unavailable: " << model_texture_error << '\n';
+        }
+    }
+
+    if (have_enemy && !enemy_mesh.textures.empty()) {
+        std::string model_texture_error;
+        if (!upload_arena_textures(enemy_mesh, model_texture_error)) {
+            std::cerr << "Enemy textures unavailable: " << model_texture_error << '\n';
         }
     }
 
@@ -917,8 +946,17 @@ int main() {
             shoot_at_nearest(game, projectile_spawn);
         }
 
+        const Mat4 enemy_local = make_enemy_local_transform();
         for (const auto& enemy : game.enemies) {
-            draw_box(enemy.position, {0.75f, 0.9f, 0.75f}, {0.89f, 0.19f, 0.18f});
+            if (have_enemy) {
+                const Mat4 enemy_world = mul_mat4(
+                    make_translation(enemy.position.x, enemy.position.y, enemy.position.z),
+                    enemy_local
+                );
+                render_model(enemy_mesh, enemy_world);
+            } else {
+                draw_box(enemy.position, {0.75f, 0.9f, 0.75f}, {0.89f, 0.19f, 0.18f});
+            }
         }
 
         for (const auto& projectile : game.projectiles) {
