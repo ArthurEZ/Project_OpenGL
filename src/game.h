@@ -24,6 +24,21 @@ struct GameState {
     Vec3 player_position{0.0f, 0.55f, 0.0f};
     float player_yaw = 0.0f;
     float player_hp = 100.0f;
+    float player_max_hp = 100.0f;
+    float player_move_speed = 8.0f;
+    float player_bullet_speed = 14.0f;
+    float player_attack_damage = 30.0f;
+    int player_level = 1;
+    int player_exp = 0;
+    int exp_to_next_level = 100;
+    int pending_levelups = 0;
+    int levelup_option_count = 0;
+    int levelup_options[3] = {0, 1, 2};
+    int max_hp_upgrade_level = 0;
+    int hp_upgrade_level = 0;
+    int move_speed_upgrade_level = 0;
+    int bullet_speed_upgrade_level = 0;
+    int damage_upgrade_level = 0;
     float survival_time = 0.0f;
     int kills = 0;
     float spawn_timer = 0.0f;
@@ -39,6 +54,10 @@ struct GameState {
 void reset_game(GameState& game);
 void spawn_enemy(GameState& game, float arena_radius, std::mt19937& rng);
 void shoot_at_nearest(GameState& game, const Vec3& spawn_position);
+void add_player_exp(GameState& game, int amount);
+void roll_level_up_options(GameState& game, std::mt19937& rng);
+bool apply_level_up_choice(GameState& game, int option_index);
+const char* level_up_option_label(int option_index);
 void update_window_title(GLFWwindow* window, const GameState& game);
 
 #endif // GAME_H

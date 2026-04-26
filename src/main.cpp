@@ -111,14 +111,31 @@ void restart_game(GameState& game, const std::vector<GroundTriangle>& ground_tri
 const std::array<unsigned char, 7>& glyph_rows(char c) {
     switch (static_cast<char>(std::toupper(static_cast<unsigned char>(c)))) {
         case 'A': { static const std::array<unsigned char, 7> rows{{0x0E, 0x11, 0x11, 0x1F, 0x11, 0x11, 0x11}}; return rows; }
+        case 'B': { static const std::array<unsigned char, 7> rows{{0x1E, 0x11, 0x11, 0x1E, 0x11, 0x11, 0x1E}}; return rows; }
+        case 'C': { static const std::array<unsigned char, 7> rows{{0x0E, 0x11, 0x10, 0x10, 0x10, 0x11, 0x0E}}; return rows; }
+        case 'D': { static const std::array<unsigned char, 7> rows{{0x1C, 0x12, 0x11, 0x11, 0x11, 0x12, 0x1C}}; return rows; }
         case 'E': { static const std::array<unsigned char, 7> rows{{0x1F, 0x10, 0x10, 0x1E, 0x10, 0x10, 0x1F}}; return rows; }
+        case 'F': { static const std::array<unsigned char, 7> rows{{0x1F, 0x10, 0x10, 0x1E, 0x10, 0x10, 0x10}}; return rows; }
         case 'G': { static const std::array<unsigned char, 7> rows{{0x0E, 0x11, 0x10, 0x13, 0x11, 0x11, 0x0E}}; return rows; }
+        case 'H': { static const std::array<unsigned char, 7> rows{{0x11, 0x11, 0x11, 0x1F, 0x11, 0x11, 0x11}}; return rows; }
+        case 'I': { static const std::array<unsigned char, 7> rows{{0x0E, 0x04, 0x04, 0x04, 0x04, 0x04, 0x0E}}; return rows; }
+        case 'J': { static const std::array<unsigned char, 7> rows{{0x01, 0x01, 0x01, 0x01, 0x11, 0x11, 0x0E}}; return rows; }
+        case 'K': { static const std::array<unsigned char, 7> rows{{0x11, 0x12, 0x14, 0x18, 0x14, 0x12, 0x11}}; return rows; }
+        case 'L': { static const std::array<unsigned char, 7> rows{{0x10, 0x10, 0x10, 0x10, 0x10, 0x10, 0x1F}}; return rows; }
         case 'M': { static const std::array<unsigned char, 7> rows{{0x11, 0x1B, 0x15, 0x11, 0x11, 0x11, 0x11}}; return rows; }
+        case 'N': { static const std::array<unsigned char, 7> rows{{0x11, 0x19, 0x15, 0x13, 0x11, 0x11, 0x11}}; return rows; }
         case 'O': { static const std::array<unsigned char, 7> rows{{0x0E, 0x11, 0x11, 0x11, 0x11, 0x11, 0x0E}}; return rows; }
+        case 'P': { static const std::array<unsigned char, 7> rows{{0x1E, 0x11, 0x11, 0x1E, 0x10, 0x10, 0x10}}; return rows; }
+        case 'Q': { static const std::array<unsigned char, 7> rows{{0x0E, 0x11, 0x11, 0x11, 0x15, 0x12, 0x0D}}; return rows; }
         case 'R': { static const std::array<unsigned char, 7> rows{{0x1E, 0x11, 0x11, 0x1E, 0x14, 0x12, 0x11}}; return rows; }
         case 'S': { static const std::array<unsigned char, 7> rows{{0x0F, 0x10, 0x10, 0x0E, 0x01, 0x01, 0x1E}}; return rows; }
         case 'T': { static const std::array<unsigned char, 7> rows{{0x1F, 0x04, 0x04, 0x04, 0x04, 0x04, 0x04}}; return rows; }
+        case 'U': { static const std::array<unsigned char, 7> rows{{0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x0E}}; return rows; }
         case 'V': { static const std::array<unsigned char, 7> rows{{0x11, 0x11, 0x11, 0x11, 0x0A, 0x0A, 0x04}}; return rows; }
+        case 'W': { static const std::array<unsigned char, 7> rows{{0x11, 0x11, 0x11, 0x11, 0x15, 0x1B, 0x11}}; return rows; }
+        case 'X': { static const std::array<unsigned char, 7> rows{{0x11, 0x11, 0x0A, 0x04, 0x0A, 0x11, 0x11}}; return rows; }
+        case 'Y': { static const std::array<unsigned char, 7> rows{{0x11, 0x11, 0x0A, 0x04, 0x04, 0x04, 0x04}}; return rows; }
+        case 'Z': { static const std::array<unsigned char, 7> rows{{0x1F, 0x01, 0x02, 0x04, 0x08, 0x10, 0x1F}}; return rows; }
         case '!': { static const std::array<unsigned char, 7> rows{{0x04, 0x04, 0x04, 0x04, 0x04, 0x00, 0x04}}; return rows; }
         case ' ': { static const std::array<unsigned char, 7> rows{{0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}}; return rows; }
         default:  { static const std::array<unsigned char, 7> rows{{0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}}; return rows; }
@@ -668,6 +685,7 @@ int main() {
     double prev_time = glfwGetTime();
     double title_timer = 0.0;
     bool restart_mouse_down_last_frame = false;
+    bool levelup_mouse_down_last_frame = false;
 
     while (!glfwWindowShouldClose(window)) {
         const double now = glfwGetTime();
@@ -694,182 +712,193 @@ int main() {
             constexpr float kCharacterHeight = 1.8f;
             constexpr float kMaxStepHeight = kCharacterHeight * 0.5f;
 
-            Vec3 move{};
-            if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS) {
-                move.z -= 1.0f;
-            }
-            if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS) {
-                move.z += 1.0f;
-            }
-            if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS) {
-                move.x -= 1.0f;
-            }
-            if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS) {
-                move.x += 1.0f;
-            }
-
-            player_is_moving = length_sq(move) > 1e-5f;
-            move = normalized(move);
-
-            if (player_is_moving) {
-                const float target_yaw = std::atan2(move.x, move.z);
-                constexpr float kPlayerRotationSpeed = 10.0f;
-                game.player_yaw = smooth_yaw_towards(game.player_yaw, target_yaw, kPlayerRotationSpeed * dt);
-            }
-
-            const Vec3 previous_player_position = game.player_position;
-            const Vec3 proposed_player_position = game.player_position + move * (8.0f * dt);
-            animation_clock += dt;
-
-            const float max_player_radius = arena.radius * 0.5f;
-            constexpr float kPlayableCenterX = 0.0f;
-            constexpr float kPlayableCenterZ = 0.0f;
-
-            float current_ground_y = 0.0f;
-            const bool have_current_ground = sample_ground_y(ground_triangles, previous_player_position.x, previous_player_position.z, current_ground_y);
-
-            Vec3 next_player_position = proposed_player_position;
-            const float to_center_x = next_player_position.x - kPlayableCenterX;
-            const float to_center_z = next_player_position.z - kPlayableCenterZ;
-            const float r = std::sqrt(to_center_x * to_center_x + to_center_z * to_center_z);
-            if (r > max_player_radius) {
-                const float inv = max_player_radius / r;
-                next_player_position.x = kPlayableCenterX + to_center_x * inv;
-                next_player_position.z = kPlayableCenterZ + to_center_z * inv;
-            }
-
-            float next_ground_y = 0.0f;
-            const bool have_next_ground = sample_ground_y(ground_triangles, next_player_position.x, next_player_position.z, next_ground_y);
-
-            if (have_current_ground && have_next_ground && (next_ground_y - current_ground_y) > kMaxStepHeight) {
-                next_player_position.x = previous_player_position.x;
-                next_player_position.z = previous_player_position.z;
-                next_ground_y = current_ground_y;
-            }
-
-            game.player_position = next_player_position;
-
-            {
-                float ground_y = 0.0f;
-                if (have_next_ground) {
-                    game.player_position.y = next_ground_y + kPlayerFootOffset;
-                } else if (sample_ground_y(ground_triangles, game.player_position.x, game.player_position.z, ground_y)) {
-                    game.player_position.y = ground_y + kPlayerFootOffset;
+            if (game.pending_levelups > 0) {
+                if (game.levelup_option_count <= 0) {
+                    roll_level_up_options(game, rng);
                 }
-            }
+                player_is_moving = false;
+            } else {
+                levelup_mouse_down_last_frame = false;
 
-            game.survival_time += dt;
-
-            const float spawn_interval = std::max(0.18f, 0.55f - game.survival_time * 0.008f);
-            game.spawn_timer -= dt;
-            if (game.spawn_timer <= 0.0f) {
-                spawn_enemy(game, arena.radius, rng);
-                game.spawn_timer += spawn_interval;
-            }
-
-            game.shoot_timer -= dt;
-            if (game.shoot_timer <= 0.0f) {
-                should_fire_projectile = true;
-                game.shoot_timer += 0.18f;
-            }
-
-            for (auto& enemy : game.enemies) {
-                const Vec3 previous_enemy_position = enemy.position;
-                const Vec3 to_player = game.player_position - enemy.position;
-                const Vec3 dir = normalized(to_player);
-                Vec3 next_enemy_position = enemy.position + dir * (enemy.speed * dt);
-
-                float current_enemy_ground_y = 0.0f;
-                float next_enemy_ground_y = 0.0f;
-                const bool have_current_enemy_ground = sample_ground_y(
-                    ground_triangles,
-                    previous_enemy_position.x,
-                    previous_enemy_position.z,
-                    current_enemy_ground_y
-                );
-                const bool have_next_enemy_ground = sample_ground_y(
-                    ground_triangles,
-                    next_enemy_position.x,
-                    next_enemy_position.z,
-                    next_enemy_ground_y
-                );
-
-                if (have_current_enemy_ground && have_next_enemy_ground && (next_enemy_ground_y - current_enemy_ground_y) > kMaxStepHeight) {
-                    next_enemy_position.x = previous_enemy_position.x;
-                    next_enemy_position.z = previous_enemy_position.z;
-                    next_enemy_ground_y = current_enemy_ground_y;
+                Vec3 move{};
+                if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS) {
+                    move.z -= 1.0f;
+                }
+                if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS) {
+                    move.z += 1.0f;
+                }
+                if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS) {
+                    move.x -= 1.0f;
+                }
+                if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS) {
+                    move.x += 1.0f;
                 }
 
-                enemy.position = next_enemy_position;
-                if (have_next_enemy_ground) {
-                    enemy.position.y = next_enemy_ground_y + kEnemyFootOffset;
+                player_is_moving = length_sq(move) > 1e-5f;
+                move = normalized(move);
+
+                if (player_is_moving) {
+                    const float target_yaw = std::atan2(move.x, move.z);
+                    constexpr float kPlayerRotationSpeed = 10.0f;
+                    game.player_yaw = smooth_yaw_towards(game.player_yaw, target_yaw, kPlayerRotationSpeed * dt);
                 }
-            }
 
-            apply_enemy_soft_separation(game);
+                const Vec3 previous_player_position = game.player_position;
+                const Vec3 proposed_player_position = game.player_position + move * (game.player_move_speed * dt);
+                animation_clock += dt;
 
-            for (const auto& enemy : game.enemies) {
-                if (distance_xz_sq(enemy.position, game.player_position) < 0.65f * 0.65f) {
-                    game.player_hp -= 28.0f * dt;
+                const float max_player_radius = arena.radius * 0.5f;
+                constexpr float kPlayableCenterX = 0.0f;
+                constexpr float kPlayableCenterZ = 0.0f;
+
+                float current_ground_y = 0.0f;
+                const bool have_current_ground = sample_ground_y(ground_triangles, previous_player_position.x, previous_player_position.z, current_ground_y);
+
+                Vec3 next_player_position = proposed_player_position;
+                const float to_center_x = next_player_position.x - kPlayableCenterX;
+                const float to_center_z = next_player_position.z - kPlayableCenterZ;
+                const float r = std::sqrt(to_center_x * to_center_x + to_center_z * to_center_z);
+                if (r > max_player_radius) {
+                    const float inv = max_player_radius / r;
+                    next_player_position.x = kPlayableCenterX + to_center_x * inv;
+                    next_player_position.z = kPlayableCenterZ + to_center_z * inv;
                 }
-            }
 
-            for (auto& p : game.projectiles) {
-                p.position = p.position + p.velocity * dt;
-                p.lifetime -= dt;
-            }
+                float next_ground_y = 0.0f;
+                const bool have_next_ground = sample_ground_y(ground_triangles, next_player_position.x, next_player_position.z, next_ground_y);
 
-            std::vector<char> enemy_alive(game.enemies.size(), 1);
-            for (auto& p : game.projectiles) {
-                if (p.lifetime <= 0.0f) {
-                    continue;
+                if (have_current_ground && have_next_ground && (next_ground_y - current_ground_y) > kMaxStepHeight) {
+                    next_player_position.x = previous_player_position.x;
+                    next_player_position.z = previous_player_position.z;
+                    next_ground_y = current_ground_y;
                 }
-                for (size_t i = 0; i < game.enemies.size(); ++i) {
-                    if (!enemy_alive[i]) {
+
+                game.player_position = next_player_position;
+
+                {
+                    float ground_y = 0.0f;
+                    if (have_next_ground) {
+                        game.player_position.y = next_ground_y + kPlayerFootOffset;
+                    } else if (sample_ground_y(ground_triangles, game.player_position.x, game.player_position.z, ground_y)) {
+                        game.player_position.y = ground_y + kPlayerFootOffset;
+                    }
+                }
+
+                game.survival_time += dt;
+
+                const float spawn_interval = std::max(0.18f, 0.55f - game.survival_time * 0.008f);
+                game.spawn_timer -= dt;
+                if (game.spawn_timer <= 0.0f) {
+                    spawn_enemy(game, arena.radius, rng);
+                    game.spawn_timer += spawn_interval;
+                }
+
+                game.shoot_timer -= dt;
+                if (game.shoot_timer <= 0.0f) {
+                    should_fire_projectile = true;
+                    game.shoot_timer += 0.18f;
+                }
+
+                for (auto& enemy : game.enemies) {
+                    const Vec3 previous_enemy_position = enemy.position;
+                    const Vec3 to_player = game.player_position - enemy.position;
+                    const Vec3 dir = normalized(to_player);
+                    Vec3 next_enemy_position = enemy.position + dir * (enemy.speed * dt);
+
+                    float current_enemy_ground_y = 0.0f;
+                    float next_enemy_ground_y = 0.0f;
+                    const bool have_current_enemy_ground = sample_ground_y(
+                        ground_triangles,
+                        previous_enemy_position.x,
+                        previous_enemy_position.z,
+                        current_enemy_ground_y
+                    );
+                    const bool have_next_enemy_ground = sample_ground_y(
+                        ground_triangles,
+                        next_enemy_position.x,
+                        next_enemy_position.z,
+                        next_enemy_ground_y
+                    );
+
+                    if (have_current_enemy_ground && have_next_enemy_ground && (next_enemy_ground_y - current_enemy_ground_y) > kMaxStepHeight) {
+                        next_enemy_position.x = previous_enemy_position.x;
+                        next_enemy_position.z = previous_enemy_position.z;
+                        next_enemy_ground_y = current_enemy_ground_y;
+                    }
+
+                    enemy.position = next_enemy_position;
+                    if (have_next_enemy_ground) {
+                        enemy.position.y = next_enemy_ground_y + kEnemyFootOffset;
+                    }
+                }
+
+                apply_enemy_soft_separation(game);
+
+                for (const auto& enemy : game.enemies) {
+                    if (distance_xz_sq(enemy.position, game.player_position) < 0.65f * 0.65f) {
+                        game.player_hp -= 28.0f * dt;
+                    }
+                }
+
+                for (auto& p : game.projectiles) {
+                    p.position = p.position + p.velocity * dt;
+                    p.lifetime -= dt;
+                }
+
+                std::vector<char> enemy_alive(game.enemies.size(), 1);
+                for (auto& p : game.projectiles) {
+                    if (p.lifetime <= 0.0f) {
                         continue;
                     }
-                    if (distance_xz_sq(p.position, game.enemies[i].position) < 0.75f * 0.75f) {
-                        game.enemies[i].hp -= 30.0f;
-                        p.lifetime = 0.0f;
-                        if (game.enemies[i].hp <= 0.0f) {
-                            enemy_alive[i] = 0;
-                            ++game.kills;
+                    for (size_t i = 0; i < game.enemies.size(); ++i) {
+                        if (!enemy_alive[i]) {
+                            continue;
                         }
-                        break;
+                        if (distance_xz_sq(p.position, game.enemies[i].position) < 0.75f * 0.75f) {
+                            game.enemies[i].hp -= game.player_attack_damage;
+                            p.lifetime = 0.0f;
+                            if (game.enemies[i].hp <= 0.0f) {
+                                enemy_alive[i] = 0;
+                                ++game.kills;
+                                add_player_exp(game, 25);
+                            }
+                            break;
+                        }
                     }
                 }
-            }
 
-            {
-                size_t write = 0;
-                for (size_t i = 0; i < game.enemies.size(); ++i) {
-                    if (enemy_alive[i]) {
-                        game.enemies[write++] = game.enemies[i];
+                {
+                    size_t write = 0;
+                    for (size_t i = 0; i < game.enemies.size(); ++i) {
+                        if (enemy_alive[i]) {
+                            game.enemies[write++] = game.enemies[i];
+                        }
                     }
+                    game.enemies.resize(write);
                 }
-                game.enemies.resize(write);
-            }
 
-            game.projectiles.erase(
-                std::remove_if(
-                    game.projectiles.begin(),
-                    game.projectiles.end(),
-                    [&](const Projectile& p) {
-                        const float r2 = p.position.x * p.position.x + p.position.z * p.position.z;
-                        return p.lifetime <= 0.0f || r2 > (arena.radius * arena.radius * 1.2f);
-                    }
-                ),
-                game.projectiles.end()
-            );
+                game.projectiles.erase(
+                    std::remove_if(
+                        game.projectiles.begin(),
+                        game.projectiles.end(),
+                        [&](const Projectile& p) {
+                            const float r2 = p.position.x * p.position.x + p.position.z * p.position.z;
+                            return p.lifetime <= 0.0f || r2 > (arena.radius * arena.radius * 1.2f);
+                        }
+                    ),
+                    game.projectiles.end()
+                );
 
-            if (game.player_hp <= 0.0f) {
-                game.player_hp = 0.0f;
-                game.game_over = true;
+                if (game.player_hp <= 0.0f) {
+                    game.player_hp = 0.0f;
+                    game.game_over = true;
+                }
             }
         }
 
         if (game.game_over) {
             player_is_moving = false;
+            levelup_mouse_down_last_frame = false;
         } else {
             restart_mouse_down_last_frame = false;
         }
@@ -972,7 +1001,104 @@ int main() {
         begin_screen_space(width, height);
 
         if (!game.game_over) {
-            draw_health_bar_screen(18.0f, 18.0f, 240.0f, 18.0f, game.player_hp / 100.0f);
+            draw_health_bar_screen(18.0f, 18.0f, 240.0f, 18.0f, game.player_hp / game.player_max_hp);
+
+            if (game.pending_levelups > 0) {
+                glColor4f(0.0f, 0.0f, 0.0f, 0.50f);
+                glBegin(GL_QUADS);
+                glVertex2f(0.0f, 0.0f);
+                glVertex2f(static_cast<float>(width), 0.0f);
+                glVertex2f(static_cast<float>(width), static_cast<float>(height));
+                glVertex2f(0.0f, static_cast<float>(height));
+                glEnd();
+
+                const float panel_width = std::min(680.0f, static_cast<float>(width) - 36.0f);
+                const float panel_height = 360.0f;
+                const float panel_left = (static_cast<float>(width) - panel_width) * 0.5f;
+                const float panel_top = (static_cast<float>(height) - panel_height) * 0.5f;
+                const float panel_right = panel_left + panel_width;
+                const float panel_bottom = panel_top + panel_height;
+
+                glColor4f(0.07f, 0.08f, 0.11f, 0.95f);
+                glBegin(GL_QUADS);
+                glVertex2f(panel_left, panel_top);
+                glVertex2f(panel_right, panel_top);
+                glVertex2f(panel_right, panel_bottom);
+                glVertex2f(panel_left, panel_bottom);
+                glEnd();
+
+                glColor4f(0.92f, 0.95f, 1.0f, 0.35f);
+                glBegin(GL_LINE_LOOP);
+                glVertex2f(panel_left, panel_top);
+                glVertex2f(panel_right, panel_top);
+                glVertex2f(panel_right, panel_bottom);
+                glVertex2f(panel_left, panel_bottom);
+                glEnd();
+
+                const std::string title_text = "CHOOSE UPGRADE";
+                const float title_scale = 5.0f;
+                draw_text_screen(
+                    panel_left + (panel_width - text_width(title_text, title_scale)) * 0.5f,
+                    panel_top + 18.0f,
+                    title_scale,
+                    title_text,
+                    {0.98f, 0.97f, 0.90f}
+                );
+
+                const int visible_options = std::max(0, std::min(3, game.levelup_option_count));
+                const float button_width = panel_width - 72.0f;
+                const float button_height = 68.0f;
+                const float button_gap = 14.0f;
+                const float first_button_top = panel_top + 86.0f;
+
+                double cursor_x = 0.0;
+                double cursor_y = 0.0;
+                glfwGetCursorPos(window, &cursor_x, &cursor_y);
+                const float mx = static_cast<float>(cursor_x);
+                const float my = static_cast<float>(cursor_y);
+                const bool mouse_down = glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS;
+
+                for (int i = 0; i < visible_options; ++i) {
+                    const float top = first_button_top + static_cast<float>(i) * (button_height + button_gap);
+                    const float left = panel_left + 36.0f;
+                    const float right = left + button_width;
+                    const float bottom = top + button_height;
+                    const bool hovered = point_in_rect(mx, my, left, top, right, bottom);
+
+                    glColor4f(hovered ? 0.27f : 0.16f, hovered ? 0.31f : 0.20f, hovered ? 0.42f : 0.28f, 0.96f);
+                    glBegin(GL_QUADS);
+                    glVertex2f(left, top);
+                    glVertex2f(right, top);
+                    glVertex2f(right, bottom);
+                    glVertex2f(left, bottom);
+                    glEnd();
+
+                    glColor4f(0.90f, 0.93f, 1.0f, hovered ? 0.90f : 0.55f);
+                    glBegin(GL_LINE_LOOP);
+                    glVertex2f(left, top);
+                    glVertex2f(right, top);
+                    glVertex2f(right, bottom);
+                    glVertex2f(left, bottom);
+                    glEnd();
+
+                    const std::string label = level_up_option_label(game.levelup_options[i]);
+                    const float label_scale = 4.0f;
+                    draw_text_screen(
+                        left + (button_width - text_width(label, label_scale)) * 0.5f,
+                        top + (button_height - 7.0f * label_scale) * 0.5f,
+                        label_scale,
+                        label,
+                        {0.98f, 0.98f, 0.98f}
+                    );
+
+                    if (hovered && mouse_down && !levelup_mouse_down_last_frame) {
+                        apply_level_up_choice(game, i);
+                        break;
+                    }
+                }
+
+                levelup_mouse_down_last_frame = mouse_down;
+            }
         } else {
             glColor4f(0.0f, 0.0f, 0.0f, 0.60f);
             glBegin(GL_QUADS);
