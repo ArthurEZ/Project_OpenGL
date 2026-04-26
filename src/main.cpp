@@ -16,6 +16,43 @@
 
 namespace {
 
+struct SpatialGrid {
+    float cell_size = 1.5f;
+    std::unordered_map<int, std::vector<size_t>> cells;
+
+    static int hash(int x, int z) {
+        return x * 73856093 ^ z * 19349663;
+    }
+
+    int get_key(float x, float z) const {
+        return hash(static_cast<int>(std::floor(x / cell_size)), static_cast<int>(std::floor(z / cell_size)));
+    }
+
+    void clear() {
+        cells.clear();
+    }
+
+    void insert(float x, float z, size_t index) {
+        cells[get_key(x, z)].push_back(index);
+    }
+
+    void query(float x, float z, float radius, std::vector<size_t>& out_indices) const {
+        int min_x = static_cast<int>(std::floor((x - radius) / cell_size));
+        int max_x = static_cast<int>(std::floor((x + radius) / cell_size));
+        int min_z = static_cast<int>(std::floor((z - radius) / cell_size));
+        int max_z = static_cast<int>(std::floor((z + radius) / cell_size));
+
+        for (int ix = min_x; ix <= max_x; ++ix) {
+            for (int iz = min_z; iz <= max_z; ++iz) {
+                auto it = cells.find(hash(ix, iz));
+                if (it != cells.end()) {
+                    out_indices.insert(out_indices.end(), it->second.begin(), it->second.end());
+                }
+            }
+        }
+    }
+};
+
 struct GroundTriangle;
 
 bool sample_ground_y(const std::vector<GroundTriangle>& triangles, float x, float z, float& out_y);
@@ -104,7 +141,7 @@ void place_player_on_ground(GameState& game, const std::vector<GroundTriangle>& 
 }
 
 void restart_game(GameState& game, const std::vector<GroundTriangle>& ground_triangles) {
-    reset_game(game);
+    reset_game_with_config(game, game.config);
     place_player_on_ground(game, ground_triangles);
 }
 
@@ -456,23 +493,27 @@ bool sample_ground_y(const std::vector<GroundTriangle>& triangles, float x, floa
     return true;
 }
 
-void apply_enemy_soft_separation(GameState& game) {
+void apply_enemy_soft_separation_optimized(GameState& game, const SpatialGrid& grid) {
     constexpr float kEnemyRadius = 0.75f;
     constexpr float kMinSeparation = kEnemyRadius * 2.0f;
     constexpr float kMinSeparationSq = kMinSeparation * kMinSeparation;
+    std::vector<size_t> neighbors;
+    neighbors.reserve(16);
 
     for (size_t i = 0; i < game.enemies.size(); ++i) {
-        for (size_t j = i + 1; j < game.enemies.size(); ++j) {
+        neighbors.clear();
+        grid.query(game.enemies[i].position.x, game.enemies[i].position.z, kMinSeparation, neighbors);
+
+        for (size_t j : neighbors) {
+            if (i >= j) continue; // Only check each pair once
+
             float dx = game.enemies[j].position.x - game.enemies[i].position.x;
             float dz = game.enemies[j].position.z - game.enemies[i].position.z;
             float dist_sq = dx * dx + dz * dz;
 
-            if (dist_sq >= kMinSeparationSq) {
-                continue;
-            }
+            if (dist_sq >= kMinSeparationSq) continue;
 
             if (dist_sq < 1e-6f) {
-                // Deterministic fallback direction when two enemies are at same point.
                 const float angle = static_cast<float>((i + 1) * (j + 3));
                 dx = std::cos(angle);
                 dz = std::sin(angle);
@@ -480,15 +521,9 @@ void apply_enemy_soft_separation(GameState& game) {
             }
 
             const float dist = std::sqrt(dist_sq);
-            if (dist <= 1e-6f) {
-                continue;
-            }
+            if (dist <= 1e-6f) continue;
 
             const float overlap = kMinSeparation - dist;
-            if (overlap <= 0.0f) {
-                continue;
-            }
-
             const float nx = dx / dist;
             const float nz = dz / dist;
             const float push = overlap * 0.5f;
@@ -525,6 +560,7 @@ struct GameContext {
     int width;
     int height;
     float dt;
+    SpatialGrid& grid;
 };
 
 void UpdateInput(GameContext& ctx) {
@@ -533,6 +569,11 @@ void UpdateInput(GameContext& ctx) {
     }
 
     if (ctx.game.game_over && glfwGetKey(ctx.window, GLFW_KEY_R) == GLFW_PRESS) {
+        // Hot-reload config on restart
+        const auto config_path = find_resource("config.json");
+        if (!config_path.empty()) {
+            ctx.game.config = load_game_config(config_path.string());
+        }
         restart_game(ctx.game, ctx.ground_triangles);
     }
 
@@ -626,7 +667,10 @@ void UpdatePhysics(GameContext& ctx) {
 
     ctx.game.survival_time += ctx.dt;
 
-    const float spawn_interval = std::max(0.18f, 0.55f - ctx.game.survival_time * 0.008f);
+    const float spawn_interval = std::max(
+        ctx.game.config.enemy.spawn_rate_min, 
+        ctx.game.config.enemy.spawn_rate_start - ctx.game.survival_time * ctx.game.config.enemy.spawn_rate_scaling
+    );
     ctx.game.spawn_timer -= ctx.dt;
     if (ctx.game.spawn_timer <= 0.0f) {
         spawn_enemy(ctx.game, ctx.arena.radius, ctx.rng);
@@ -660,7 +704,12 @@ void UpdatePhysics(GameContext& ctx) {
         }
     }
 
-    apply_enemy_soft_separation(ctx.game);
+    ctx.grid.clear();
+    for (size_t i = 0; i < ctx.game.enemies.size(); ++i) {
+        ctx.grid.insert(ctx.game.enemies[i].position.x, ctx.game.enemies[i].position.z, i);
+    }
+
+    apply_enemy_soft_separation_optimized(ctx.game, ctx.grid);
 
     for (auto& p : ctx.game.projectiles) {
         p.position = p.position + p.velocity * ctx.dt;
@@ -677,19 +726,26 @@ void UpdateCombat(GameContext& ctx, bool& should_fire_projectile) {
     ctx.game.shoot_timer -= ctx.dt;
     if (ctx.game.shoot_timer <= 0.0f) {
         should_fire_projectile = true;
-        ctx.game.shoot_timer += 0.18f;
+        ctx.game.shoot_timer += ctx.game.config.player.fire_rate;
     }
 
     for (const auto& enemy : ctx.game.enemies) {
         if (distance_xz_sq(enemy.position, ctx.game.player_position) < 0.65f * 0.65f) {
-            ctx.game.player_hp -= 28.0f * ctx.dt;
+            ctx.game.player_hp -= ctx.game.config.enemy.base_damage * ctx.dt;
         }
     }
 
     std::vector<char> enemy_alive(ctx.game.enemies.size(), 1);
+    std::vector<size_t> neighbors;
+    neighbors.reserve(8);
+
     for (auto& p : ctx.game.projectiles) {
         if (p.lifetime <= 0.0f) continue;
-        for (size_t i = 0; i < ctx.game.enemies.size(); ++i) {
+        
+        neighbors.clear();
+        ctx.grid.query(p.position.x, p.position.z, 0.75f, neighbors);
+
+        for (size_t i : neighbors) {
             if (!enemy_alive[i]) continue;
             if (distance_xz_sq(p.position, ctx.game.enemies[i].position) < 0.75f * 0.75f) {
                 ctx.game.enemies[i].hp -= ctx.game.player_attack_damage;
@@ -1154,11 +1210,16 @@ int main() {
             std::cerr << "Failed to load Vanguard walk animation: " << clip_error << '\n';
         }
     }
-
     glEnable(GL_DEPTH_TEST);
     glDisable(GL_CULL_FACE);
 
     GameState game;
+    const auto config_path = find_resource("config.json");
+    if (!config_path.empty()) {
+        game.config = load_game_config(config_path.string());
+    }
+    reset_game_with_config(game, game.config);
+
     {
         float initial_ground_y = 0.0f;
         if (sample_ground_y(ground_triangles, game.player_position.x, game.player_position.z, initial_ground_y)) {
@@ -1176,6 +1237,7 @@ int main() {
     double title_timer = 0.0;
     bool restart_mouse_down_last_frame = false;
     bool levelup_mouse_down_last_frame = false;
+    SpatialGrid grid;
 
     while (!glfwWindowShouldClose(window)) {
         const double now = glfwGetTime();
@@ -1192,7 +1254,7 @@ int main() {
             have_vanguard, have_enemy, have_staff, idle_clip_index, walk_clip_index,
             staff_attach_walk_settings, staff_attach_idle_settings, rng,
             animation_clock, player_is_moving, restart_mouse_down_last_frame,
-            levelup_mouse_down_last_frame, width, height, dt
+            levelup_mouse_down_last_frame, width, height, dt, grid
         };
 
         UpdateInput(ctx);

@@ -1,0 +1,29 @@
+{
+    "player": {
+        "base_hp": 100.0,
+        "base_move_speed": 8.0,
+        "base_bullet_speed": 14.0,
+        "base_attack_damage": 30.0,
+        "fire_rate": 0.18,
+        "exp_base": 100,
+        "exp_increment": 30
+    },
+    "enemy": {
+        "base_hp": 60.0,
+        "base_speed": 1.8,
+        "speed_scaling": 0.035,
+        "max_speed_cap": 5.0,
+        "base_damage": 28.0,
+        "spawn_rate_start": 0.55,
+        "spawn_rate_min": 0.18,
+        "spawn_rate_scaling": 0.008,
+        "exp_reward": 25
+    },
+    "upgrades": {
+        "hp_boost": 20.0,
+        "heal_amount": 35.0,
+        "speed_boost": 0.8,
+        "bullet_speed_boost": 1.5,
+        "damage_boost": 8.0
+    }
+}
