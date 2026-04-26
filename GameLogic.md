@@ -32,17 +32,3 @@
    • Reset: Key "R" reinitializes all variables and clears arrays.
    AI Implementation Note: When coding this, prioritize the Nearest Enemy Search algorithm and the Spawn Interval Formula as these dictate the game's primary feel and difficulty curve.
 
-## Resource Structure
-
-Game assets are stored in resources/object/ and organized by gameplay entity.
-
-resources/object/
-├── arena/      → Main arena environment (GLTF scene + textures)
-├── mixamo/     → Player character "Vanguard" model and animations
-├── staff/      → Player weapon (magic cyber staff model)
-└── cube.obj    → Simple cube used for debugging (enemies, projectiles)
-
-Arena provides the playable map and environment visuals.
-Mixamo/Vanguard is the main player character with skeletal animations.
-Staff is the player’s weapon used to fire projectiles.
-Cube is a placeholder mesh used during development for enemies and bullets.
