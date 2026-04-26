@@ -1,11 +1,7 @@
 #include "graphics.h"
 #include "math.h"
 #include "game.h"
-#ifdef __APPLE__
-  #include <OpenGL/gl.h>
-#else
-  #include <GL/gl.h>
-#endif
+#include <glad/glad.h>
 
 #include <algorithm>
 

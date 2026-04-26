@@ -3,6 +3,9 @@
 #include "graphics.h"
 #include "game.h"
 
+#include <glad/glad.h>
+#include <GLFW/glfw3.h>
+
 #include <iostream>
 #include <cstdlib>
 #include <cmath>
@@ -10,12 +13,6 @@
 #include <random>
 #include <algorithm>
 #include <array>
-#ifdef __APPLE__
-  #include <OpenGL/gl.h>
-#else
-  #include <GL/gl.h>
-#endif
-#include <GLFW/glfw3.h>
 
 namespace {
 
@@ -517,6 +514,10 @@ int main() {
     }
 
     glfwMakeContextCurrent(window);
+    if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress)) {
+        std::cerr << "Failed to initialize GLAD\n";
+        return EXIT_FAILURE;
+    }
     glfwSwapInterval(1);
     glfwSetFramebufferSizeCallback(window, framebuffer_size_callback);
     glfwSetScrollCallback(window, scroll_callback);

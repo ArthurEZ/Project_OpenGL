@@ -80,6 +80,10 @@ target_compile_definitions(opengl_starter PRIVATE
     APP_SOURCE_DIR="${CMAKE_SOURCE_DIR}"
 )
 
+if(APPLE)
+    target_compile_definitions(opengl_starter PRIVATE GL_SILENCE_DEPRECATION)
+endif()
+
 if(EXISTS "${CMAKE_SOURCE_DIR}/resources")
     add_custom_command(TARGET opengl_starter POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_directory
