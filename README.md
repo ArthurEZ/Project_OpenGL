@@ -2,9 +2,14 @@
 
 A fast-paced OpenGL-based top-down survival shooter with dynamic difficulty scaling, real-time enemy AI, and a progression system. Survive endless waves of enemies while managing health, upgrades, and increasingly challenging spawning mechanics.
 
-
+## Game Sample
+### Video
 
 https://github.com/user-attachments/assets/4040a283-b96d-4a0e-a971-c1f0df1f4148
+
+### Screenshot
+<img width="2784" height="1728" alt="Screenshot 2026-04-28 at 19 47 36" src="https://github.com/user-attachments/assets/0159e65f-e452-482d-80a6-26e14b0cc583" />
+<img width="1392" height="864" alt="Screenshot 2026-04-28 at 19 47 42" src="https://github.com/user-attachments/assets/44bdc30c-1ca9-4151-89ed-3b8f838b623e" />
 
 
 
