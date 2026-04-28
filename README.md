@@ -3,15 +3,17 @@
 A fast-paced OpenGL-based top-down survival shooter with dynamic difficulty scaling, real-time enemy AI, and a progression system. Survive endless waves of enemies while managing health, upgrades, and increasingly challenging spawning mechanics.
 
 ## Game Sample
+
 ### Video
 
 https://github.com/user-attachments/assets/4040a283-b96d-4a0e-a971-c1f0df1f4148
 
 ### Screenshot
-<img width="2784" height="1728" alt="Screenshot 2026-04-28 at 19 47 36" src="https://github.com/user-attachments/assets/0159e65f-e452-482d-80a6-26e14b0cc583" />
-<img width="1392" height="864" alt="Screenshot 2026-04-28 at 19 47 42" src="https://github.com/user-attachments/assets/44bdc30c-1ca9-4151-89ed-3b8f838b623e" />
 
-
+<p align="center">
+  <img src="https://github.com/user-attachments/assets/0159e65f-e452-482d-80a6-26e14b0cc583" width="48%" />
+  <img src="https://github.com/user-attachments/assets/44bdc30c-1ca9-4151-89ed-3b8f838b623e" width="48%" />
+</p>
 
 ## Idea
 
@@ -268,19 +270,19 @@ Project_OpenGL/
 
 This project uses external 3D assets and animations from the following sources:
 
-* **Lightcycle Arena Rev 02 (TEBG)**
+- **Lightcycle Arena Rev 02 (TEBG)**
   Source: Sketchfab
   https://sketchfab.com/3d-models/lightcycle-arena-rev-02-tebg-4f52ab3038a94557a3b69e899297b945
 
-* **AS Vulcan Scarlet Lance (Stylized)**
+- **AS Vulcan Scarlet Lance (Stylized)**
   Source: Sketchfab
   https://sketchfab.com/3d-models/as-vulcan-scarlet-lance-3d-model-stylized-655eb45f8e964f8b8ae3bc453ae58be6
 
-* **Character & Animations (Mixamo)**
+- **Character & Animations (Mixamo)**
   Source: Adobe Mixamo
   https://www.mixamo.com/
 
-* **Animated Mech Pack**
+- **Animated Mech Pack**
   Source: Quaternius
   https://quaternius.com/packs/animatedmech.html
 
@@ -288,9 +290,9 @@ This project uses external 3D assets and animations from the following sources:
 
 ### Licensing Notes
 
-* Sketchfab assets are used under their respective licenses. Please refer to the original model pages for detailed terms and restrictions.
-* Mixamo animations are provided by Adobe for free use in projects (subject to Adobe terms).
-* Quaternius assets are released under **CC0 (Public Domain)** and are free for both personal and commercial use. ([Quaternius][1])
+- Sketchfab assets are used under their respective licenses. Please refer to the original model pages for detailed terms and restrictions.
+- Mixamo animations are provided by Adobe for free use in projects (subject to Adobe terms).
+- Quaternius assets are released under **CC0 (Public Domain)** and are free for both personal and commercial use. ([Quaternius][1])
 
 ---
 
