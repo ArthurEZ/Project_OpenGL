@@ -258,3 +258,40 @@ Project_OpenGL/
 - `.gitignore` already excludes these folders.
 - Config hot-reload: modify `resources/config.json` and restart the game (R key) to apply changes.
 - All paths are resolved relative to `resources/`; see `CODEBASE_OVERVIEW.md` for asset loading details.
+
+## Credits
+
+This project uses external 3D assets and animations from the following sources:
+
+* **Lightcycle Arena Rev 02 (TEBG)**
+  Source: Sketchfab
+  https://sketchfab.com/3d-models/lightcycle-arena-rev-02-tebg-4f52ab3038a94557a3b69e899297b945
+
+* **AS Vulcan Scarlet Lance (Stylized)**
+  Source: Sketchfab
+  https://sketchfab.com/3d-models/as-vulcan-scarlet-lance-3d-model-stylized-655eb45f8e964f8b8ae3bc453ae58be6
+
+* **Character & Animations (Mixamo)**
+  Source: Adobe Mixamo
+  https://www.mixamo.com/
+
+* **Animated Mech Pack**
+  Source: Quaternius
+  https://quaternius.com/packs/animatedmech.html
+
+---
+
+### Licensing Notes
+
+* Sketchfab assets are used under their respective licenses. Please refer to the original model pages for detailed terms and restrictions.
+* Mixamo animations are provided by Adobe for free use in projects (subject to Adobe terms).
+* Quaternius assets are released under **CC0 (Public Domain)** and are free for both personal and commercial use. ([Quaternius][1])
+
+---
+
+### Disclaimer
+
+All third-party assets remain the property of their respective creators.
+This project is for educational purposes and does not claim ownership over any external resources.
+
+[1]: https://quaternius.com/packs/animatedmech.html?utm_source=chatgpt.com "Quaternius • Animated Mech Pack"
