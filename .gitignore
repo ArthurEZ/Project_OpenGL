@@ -1,4 +1,5 @@
 build/
+build-release/
 bin/
 .vscode/
 .DS_Store
