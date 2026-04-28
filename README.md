@@ -2,6 +2,8 @@
 
 A fast-paced OpenGL-based top-down survival shooter with dynamic difficulty scaling, real-time enemy AI, and a progression system. Survive endless waves of enemies while managing health, upgrades, and increasingly challenging spawning mechanics.
 
+__itch.io link__ - [thanagornp.itch.io/cybersurviver](https://thanagornp.itch.io/cybersurviver)
+
 ## Game Sample
 
 ### Video
