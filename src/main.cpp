@@ -1407,7 +1407,7 @@ int main() {
                 glEnd();
 
                 const float title_scale = 10.0f;
-                const std::string title_text = "3D SURVIVOR ARENA";
+                const std::string title_text = "CYBER SURVUVOR";
                 draw_text_screen(
                     (static_cast<float>(mctx.width) - text_width(title_text, title_scale)) * 0.5f,
                     static_cast<float>(mctx.height) * 0.28f,
