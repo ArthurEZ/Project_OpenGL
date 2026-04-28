@@ -228,6 +228,28 @@ bool point_in_rect(float x, float y, float left, float top, float right, float b
     return x >= left && x <= right && y >= top && y <= bottom;
 }
 
+void get_cursor_framebuffer_pos(GLFWwindow* window, int framebuffer_width, int framebuffer_height, float& out_x, float& out_y) {
+    double cursor_x = 0.0;
+    double cursor_y = 0.0;
+    glfwGetCursorPos(window, &cursor_x, &cursor_y);
+
+    int window_width = 0;
+    int window_height = 0;
+    glfwGetWindowSize(window, &window_width, &window_height);
+
+    if (window_width <= 0 || window_height <= 0) {
+        out_x = static_cast<float>(cursor_x);
+        out_y = static_cast<float>(cursor_y);
+        return;
+    }
+
+    // UI rendering uses framebuffer pixels, so convert cursor coordinates accordingly (important on HiDPI/Retina).
+    const float scale_x = static_cast<float>(framebuffer_width) / static_cast<float>(window_width);
+    const float scale_y = static_cast<float>(framebuffer_height) / static_cast<float>(window_height);
+    out_x = static_cast<float>(cursor_x) * scale_x;
+    out_y = static_cast<float>(cursor_y) * scale_y;
+}
+
 Mat4 make_rigid_transform(const Mat4& m) {
     Vec3 right = normalized({m.m[0], m.m[1], m.m[2]});
     Vec3 forward = normalized({m.m[8], m.m[9], m.m[10]});
@@ -680,7 +702,7 @@ void UpdatePhysics(GameContext& ctx) {
     ctx.game.survival_time += ctx.dt;
 
     const float spawn_interval = std::max(
-        ctx.game.config.enemy.spawn_rate_min, 
+        ctx.game.config.enemy.spawn_rate_min,
         ctx.game.config.enemy.spawn_rate_start - ctx.game.survival_time * ctx.game.config.enemy.spawn_rate_scaling
     );
     ctx.game.spawn_timer -= ctx.dt;
@@ -753,7 +775,7 @@ void UpdateCombat(GameContext& ctx, bool& should_fire_projectile) {
 
     for (auto& p : ctx.game.projectiles) {
         if (p.lifetime <= 0.0f) continue;
-        
+
         neighbors.clear();
         ctx.grid.query(p.position.x, p.position.z, 0.75f, neighbors);
 
@@ -982,11 +1004,9 @@ void RenderUI(GameContext& ctx) {
             const float button_gap = 14.0f;
             const float first_button_top = panel_top + 86.0f;
 
-            double cursor_x = 0.0;
-            double cursor_y = 0.0;
-            glfwGetCursorPos(ctx.window, &cursor_x, &cursor_y);
-            const float mx = static_cast<float>(cursor_x);
-            const float my = static_cast<float>(cursor_y);
+            float mx = 0.0f;
+            float my = 0.0f;
+            get_cursor_framebuffer_pos(ctx.window, ctx.width, ctx.height, mx, my);
             const bool mouse_down = glfwGetMouseButton(ctx.window, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS;
 
             for (int i = 0; i < visible_options; ++i) {
@@ -1091,11 +1111,11 @@ void RenderUI(GameContext& ctx) {
         const float button_right = button_left + button_width;
         const float button_bottom = button_top + button_height;
 
-        double cursor_x = 0.0;
-        double cursor_y = 0.0;
-        glfwGetCursorPos(ctx.window, &cursor_x, &cursor_y);
+        float cursor_x = 0.0f;
+        float cursor_y = 0.0f;
+        get_cursor_framebuffer_pos(ctx.window, ctx.width, ctx.height, cursor_x, cursor_y);
         const bool mouse_down = glfwGetMouseButton(ctx.window, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS;
-        const bool hovered = point_in_rect(static_cast<float>(cursor_x), static_cast<float>(cursor_y), button_left, button_top, button_right, button_bottom);
+        const bool hovered = point_in_rect(cursor_x, cursor_y, button_left, button_top, button_right, button_bottom);
 
         glColor4f(0.12f, 0.12f, 0.12f, hovered ? 0.95f : 0.80f);
         glBegin(GL_QUADS);
