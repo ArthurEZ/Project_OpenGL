@@ -2,6 +2,12 @@
 
 A fast-paced OpenGL-based top-down survival shooter with dynamic difficulty scaling, real-time enemy AI, and a progression system. Survive endless waves of enemies while managing health, upgrades, and increasingly challenging spawning mechanics.
 
+
+
+https://github.com/user-attachments/assets/4040a283-b96d-4a0e-a971-c1f0df1f4148
+
+
+
 ## Idea
 
 In this arena-based survival game, you control a player character on a fixed circular map and must defeat an infinite stream of enemies. Your weapon auto-targets the nearest enemy within range, encouraging smart positioning and kiting. As you survive longer, the difficulty scales dynamically—enemies spawn faster, move quicker, and gain more health. Collect experience from kills, level up, and choose between three randomized upgrades each time you gain a level. The game ends when your health reaches zero; your goal is to maximize survival time and kill count.
