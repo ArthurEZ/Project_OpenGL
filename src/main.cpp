@@ -543,7 +543,7 @@ struct GameContext {
     const std::vector<GroundTriangle>& ground_triangles;
     const ArenaMesh& arena;
     const AnimatedModel& vanguard;
-    const ArenaMesh& enemy_mesh;
+    const AnimatedModel& enemy_model;
     const ArenaMesh& staff;
     bool have_vanguard;
     bool have_enemy;
@@ -862,13 +862,16 @@ void RenderScene(GameContext& ctx, bool should_fire_projectile) {
     }
 
     const Mat4 enemy_local = make_enemy_local_transform();
+    if (ctx.have_enemy) {
+        update_animated_model(const_cast<AnimatedModel&>(ctx.enemy_model), 0, static_cast<float>(ctx.animation_clock));
+    }
     for (const auto& enemy : ctx.game.enemies) {
         if (ctx.have_enemy) {
             const Mat4 enemy_world = mul_mat4(
                 make_translation(enemy.position.x, enemy.position.y, enemy.position.z),
                 enemy_local
             );
-            render_model(ctx.enemy_mesh, enemy_world);
+            render_model(ctx.enemy_model.mesh, enemy_world);
         } else {
             draw_box(enemy.position, {0.75f, 0.9f, 0.75f}, {0.89f, 0.19f, 0.18f});
         }
@@ -1129,7 +1132,7 @@ int main() {
     const auto staff_path = find_resource("object/staff/as-vulcan_scarlet_lance_-_3d_model_stylized.glb");
 
     AnimatedModel vanguard;
-    ArenaMesh enemy_mesh;
+    AnimatedModel enemy_model;
     ArenaMesh staff;
     bool have_vanguard = false;
     bool have_enemy = false;
@@ -1147,7 +1150,7 @@ int main() {
 
     if (!enemy_path.empty()) {
         std::string model_error;
-        have_enemy = load_static_model_mesh(enemy_path, enemy_mesh, model_error);
+        have_enemy = load_animated_model(enemy_path, enemy_model, model_error);
         if (!have_enemy) {
             std::cerr << "Failed to load Enemy: " << model_error << '\n';
         }
@@ -1172,9 +1175,9 @@ int main() {
         }
     }
 
-    if (have_enemy && !enemy_mesh.textures.empty()) {
+    if (have_enemy && !enemy_model.mesh.textures.empty()) {
         std::string model_texture_error;
-        if (!upload_arena_textures(enemy_mesh, model_texture_error)) {
+        if (!upload_arena_textures(enemy_model.mesh, model_texture_error)) {
             std::cerr << "Enemy textures unavailable: " << model_texture_error << '\n';
         }
     }
@@ -1250,7 +1253,7 @@ int main() {
         glfwGetFramebufferSize(window, &width, &height);
 
         GameContext ctx = {
-            window, game, ground_triangles, arena, vanguard, enemy_mesh, staff,
+            window, game, ground_triangles, arena, vanguard, enemy_model, staff,
             have_vanguard, have_enemy, have_staff, idle_clip_index, walk_clip_index,
             staff_attach_walk_settings, staff_attach_idle_settings, rng,
             animation_clock, player_is_moving, restart_mouse_down_last_frame,

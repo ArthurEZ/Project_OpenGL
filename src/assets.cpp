@@ -320,6 +320,7 @@ bool load_arena_mesh(const std::filesystem::path& gltf_path, ArenaMesh& mesh, st
     }
 
     std::vector<Vec3> all_positions;
+    std::unordered_map<std::string, int> texture_slot_by_key;
 
     struct TempPrimitive {
         std::vector<Vec3> positions;
@@ -1191,6 +1192,7 @@ bool load_animated_model(const std::filesystem::path& model_path, AnimatedModel&
     }
 
     std::vector<Vec3> all_positions;
+    std::unordered_map<std::string, int> texture_slot_by_key;
 
     struct TempPrimitive {
         std::vector<Vec3> positions;
@@ -1288,24 +1290,91 @@ bool load_animated_model(const std::filesystem::path& model_path, AnimatedModel&
                 if (aiGetMaterialColor(material, AI_MATKEY_COLOR_DIFFUSE, &diffuse) == aiReturn_SUCCESS) {
                     temp.base_color_factor = {diffuse.r, diffuse.g, diffuse.b, diffuse.a};
                 }
-                int base_slot = -1;
-                if (material->GetTextureCount(aiTextureType_BASE_COLOR) > 0) {
-                    aiString rel_path;
-                    if (material->GetTexture(aiTextureType_BASE_COLOR, 0, &rel_path) == aiReturn_SUCCESS && rel_path.length > 0 && rel_path.C_Str()[0] != '*') {
-                        ArenaMesh::Texture texture;
-                        texture.image_path = model_path.parent_path() / rel_path.C_Str();
-                        model.mesh.textures.push_back(texture);
-                        base_slot = static_cast<int>(model.mesh.textures.size() - 1);
+                auto add_texture_slot = [&](aiTextureType texture_type) -> int {
+                    if (material->GetTextureCount(texture_type) == 0) {
+                        return -1;
                     }
-                }
-                if (base_slot < 0 && material->GetTextureCount(aiTextureType_DIFFUSE) > 0) {
+
                     aiString rel_path;
-                    if (material->GetTexture(aiTextureType_DIFFUSE, 0, &rel_path) == aiReturn_SUCCESS && rel_path.length > 0 && rel_path.C_Str()[0] != '*') {
-                        ArenaMesh::Texture texture;
-                        texture.image_path = model_path.parent_path() / rel_path.C_Str();
-                        model.mesh.textures.push_back(texture);
-                        base_slot = static_cast<int>(model.mesh.textures.size() - 1);
+                    if (material->GetTexture(texture_type, 0, &rel_path) != aiReturn_SUCCESS || rel_path.length == 0) {
+                        return -1;
                     }
+
+                    const std::string rel = rel_path.C_Str();
+                    const std::string key = (rel[0] == '*')
+                        ? rel
+                        : (model_path.parent_path() / rel).lexically_normal().string();
+
+                    const auto existing_it = texture_slot_by_key.find(key);
+                    if (existing_it != texture_slot_by_key.end()) {
+                        return existing_it->second;
+                    }
+
+                    ArenaMesh::Texture texture;
+                    if (rel[0] == '*') {
+                        const aiTexture* embedded = scene->GetEmbeddedTexture(rel.c_str());
+                        if (embedded == nullptr || embedded->pcData == nullptr) {
+                            return -1;
+                        }
+
+                        if (embedded->mHeight == 0) {
+                            int width = 0;
+                            int height = 0;
+                            int channels = 0;
+                            const unsigned char* encoded_data = reinterpret_cast<const unsigned char*>(embedded->pcData);
+                            unsigned char* decoded_pixels = stbi_load_from_memory(
+                                encoded_data,
+                                static_cast<int>(embedded->mWidth),
+                                &width,
+                                &height,
+                                &channels,
+                                4
+                            );
+                            if (decoded_pixels == nullptr || width <= 0 || height <= 0) {
+                                if (decoded_pixels != nullptr) {
+                                    stbi_image_free(decoded_pixels);
+                                }
+                                return -1;
+                            }
+
+                            texture.embedded_width = width;
+                            texture.embedded_height = height;
+                            texture.embedded_rgba.assign(
+                                decoded_pixels,
+                                decoded_pixels + static_cast<size_t>(width) * static_cast<size_t>(height) * 4
+                            );
+                            stbi_image_free(decoded_pixels);
+                        } else {
+                            const int width = static_cast<int>(embedded->mWidth);
+                            const int height = static_cast<int>(embedded->mHeight);
+                            if (width <= 0 || height <= 0) {
+                                return -1;
+                            }
+
+                            texture.embedded_width = width;
+                            texture.embedded_height = height;
+                            texture.embedded_rgba.resize(static_cast<size_t>(width) * static_cast<size_t>(height) * 4);
+                            for (int i = 0; i < width * height; ++i) {
+                                const aiTexel& texel = embedded->pcData[i];
+                                texture.embedded_rgba[static_cast<size_t>(i) * 4 + 0] = texel.r;
+                                texture.embedded_rgba[static_cast<size_t>(i) * 4 + 1] = texel.g;
+                                texture.embedded_rgba[static_cast<size_t>(i) * 4 + 2] = texel.b;
+                                texture.embedded_rgba[static_cast<size_t>(i) * 4 + 3] = texel.a;
+                            }
+                        }
+                    } else {
+                        texture.image_path = (model_path.parent_path() / rel).lexically_normal();
+                    }
+
+                    model.mesh.textures.push_back(std::move(texture));
+                    const int slot = static_cast<int>(model.mesh.textures.size() - 1);
+                    texture_slot_by_key.emplace(key, slot);
+                    return slot;
+                };
+
+                int base_slot = add_texture_slot(aiTextureType_BASE_COLOR);
+                if (base_slot < 0) {
+                    base_slot = add_texture_slot(aiTextureType_DIFFUSE);
                 }
                 temp.base_texture_slot = base_slot;
             }
