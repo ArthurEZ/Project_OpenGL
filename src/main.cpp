@@ -173,6 +173,17 @@ const std::array<unsigned char, 7>& glyph_rows(char c) {
         case 'X': { static const std::array<unsigned char, 7> rows{{0x11, 0x11, 0x0A, 0x04, 0x0A, 0x11, 0x11}}; return rows; }
         case 'Y': { static const std::array<unsigned char, 7> rows{{0x11, 0x11, 0x0A, 0x04, 0x04, 0x04, 0x04}}; return rows; }
         case 'Z': { static const std::array<unsigned char, 7> rows{{0x1F, 0x01, 0x02, 0x04, 0x08, 0x10, 0x1F}}; return rows; }
+        case '0': { static const std::array<unsigned char, 7> rows{{0x0E, 0x11, 0x11, 0x11, 0x11, 0x11, 0x0E}}; return rows; }
+        case '1': { static const std::array<unsigned char, 7> rows{{0x04, 0x0C, 0x04, 0x04, 0x04, 0x04, 0x0E}}; return rows; }
+        case '2': { static const std::array<unsigned char, 7> rows{{0x0E, 0x11, 0x01, 0x02, 0x04, 0x08, 0x1F}}; return rows; }
+        case '3': { static const std::array<unsigned char, 7> rows{{0x1F, 0x01, 0x02, 0x0E, 0x01, 0x11, 0x0E}}; return rows; }
+        case '4': { static const std::array<unsigned char, 7> rows{{0x02, 0x06, 0x0A, 0x12, 0x1F, 0x02, 0x02}}; return rows; }
+        case '5': { static const std::array<unsigned char, 7> rows{{0x1F, 0x10, 0x10, 0x1E, 0x01, 0x11, 0x0E}}; return rows; }
+        case '6': { static const std::array<unsigned char, 7> rows{{0x0E, 0x11, 0x10, 0x1E, 0x11, 0x11, 0x0E}}; return rows; }
+        case '7': { static const std::array<unsigned char, 7> rows{{0x1F, 0x01, 0x02, 0x04, 0x08, 0x10, 0x10}}; return rows; }
+        case '8': { static const std::array<unsigned char, 7> rows{{0x0E, 0x11, 0x11, 0x0E, 0x11, 0x11, 0x0E}}; return rows; }
+        case '9': { static const std::array<unsigned char, 7> rows{{0x0E, 0x11, 0x11, 0x0F, 0x01, 0x11, 0x0E}}; return rows; }
+        case ':': { static const std::array<unsigned char, 7> rows{{0x00, 0x00, 0x04, 0x00, 0x00, 0x04, 0x00}}; return rows; }
         case '!': { static const std::array<unsigned char, 7> rows{{0x04, 0x04, 0x04, 0x04, 0x04, 0x00, 0x04}}; return rows; }
         case ' ': { static const std::array<unsigned char, 7> rows{{0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}}; return rows; }
         default:  { static const std::array<unsigned char, 7> rows{{0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}}; return rows; }
@@ -906,6 +917,23 @@ void RenderUI(GameContext& ctx) {
     if (!ctx.game.game_over) {
         draw_health_bar_screen(18.0f, 18.0f, 240.0f, 18.0f, ctx.game.player_hp / ctx.game.player_max_hp);
 
+        // HUD: show kills, time survived, and player level
+        const float hud_scale = 3.5f;
+        const float hud_x = 18.0f;
+        const float hud_y = 46.0f;
+
+        const std::string hud_kills = std::string("KILLS: ") + std::to_string(ctx.game.kills);
+        draw_text_screen(hud_x, hud_y, hud_scale, hud_kills, {0.98f, 0.95f, 0.90f});
+
+        const int hud_total_seconds = static_cast<int>(std::floor(ctx.game.survival_time + 0.5f));
+        const int hud_minutes = hud_total_seconds / 60;
+        const int hud_seconds = hud_total_seconds % 60;
+        const std::string hud_time = std::string("TIME: ") + std::to_string(hud_minutes) + ":" + (hud_seconds < 10 ? "0" : "") + std::to_string(hud_seconds);
+        draw_text_screen(hud_x, hud_y + hud_scale * 9.0f, hud_scale, hud_time, {0.98f, 0.95f, 0.90f});
+
+        const std::string hud_level = std::string("LEVEL: ") + std::to_string(ctx.game.player_level);
+        draw_text_screen(hud_x, hud_y + hud_scale * 18.0f, hud_scale, hud_level, {0.98f, 0.95f, 0.90f});
+
         if (ctx.game.pending_levelups > 0) {
             glColor4f(0.0f, 0.0f, 0.0f, 0.50f);
             glBegin(GL_QUADS);
@@ -1019,6 +1047,41 @@ void RenderUI(GameContext& ctx) {
             title_scale,
             game_over_text,
             {1.0f, 0.92f, 0.92f}
+        );
+
+        // Show summary stats: kills, time survived, and player level
+        const float info_scale = 4.0f;
+        float info_y = static_cast<float>(ctx.height) * 0.30f + 72.0f;
+
+        const std::string kills_text = std::string("KILLS: ") + std::to_string(ctx.game.kills);
+        draw_text_screen(
+            (static_cast<float>(ctx.width) - text_width(kills_text, info_scale)) * 0.5f,
+            info_y,
+            info_scale,
+            kills_text,
+            {0.97f, 0.94f, 0.90f}
+        );
+
+        // Format survival time as MM:SS
+        const int total_seconds = static_cast<int>(std::floor(ctx.game.survival_time + 0.5f));
+        const int minutes = total_seconds / 60;
+        const int seconds = total_seconds % 60;
+        const std::string time_text = std::string("TIME: ") + std::to_string(minutes) + ":" + (seconds < 10 ? "0" : "") + std::to_string(seconds);
+        draw_text_screen(
+            (static_cast<float>(ctx.width) - text_width(time_text, info_scale)) * 0.5f,
+            info_y + info_scale * 9.0f,
+            info_scale,
+            time_text,
+            {0.97f, 0.94f, 0.90f}
+        );
+
+        const std::string level_text = std::string("LEVEL: ") + std::to_string(ctx.game.player_level);
+        draw_text_screen(
+            (static_cast<float>(ctx.width) - text_width(level_text, info_scale)) * 0.5f,
+            info_y + info_scale * 18.0f,
+            info_scale,
+            level_text,
+            {0.97f, 0.94f, 0.90f}
         );
 
         const float button_width = 260.0f;
