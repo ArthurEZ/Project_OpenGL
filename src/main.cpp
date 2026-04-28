@@ -1348,6 +1348,7 @@ int main() {
     bool restart_mouse_down_last_frame = false;
     bool levelup_mouse_down_last_frame = false;
     SpatialGrid grid;
+    bool in_main_menu = true;
 
     while (!glfwWindowShouldClose(window)) {
         const double now = glfwGetTime();
@@ -1367,14 +1368,128 @@ int main() {
             levelup_mouse_down_last_frame, width, height, dt, grid
         };
 
-        UpdateInput(ctx);
-        UpdatePhysics(ctx);
+        if (in_main_menu) {
+            if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS) {
+                glfwSetWindowShouldClose(window, 1);
+            }
+            RenderScene(ctx, false);
+            // Render a simple main menu overlay and handle start/quit clicks.
+            // Menu interaction uses an internal previous-mouse state so clicks aren't repeated.
+            auto RenderMainMenuOverlay = [&](GameContext& mctx, bool& menu_active) {
+                begin_screen_space(mctx.width, mctx.height);
 
-        bool should_fire_projectile = false;
-        UpdateCombat(ctx, should_fire_projectile);
+                glColor4f(0.0f, 0.0f, 0.0f, 0.60f);
+                glBegin(GL_QUADS);
+                glVertex2f(0.0f, 0.0f);
+                glVertex2f(static_cast<float>(mctx.width), 0.0f);
+                glVertex2f(static_cast<float>(mctx.width), static_cast<float>(mctx.height));
+                glVertex2f(0.0f, static_cast<float>(mctx.height));
+                glEnd();
 
-        RenderScene(ctx, should_fire_projectile);
-        RenderUI(ctx);
+                const float title_scale = 10.0f;
+                const std::string title_text = "3D SURVIVOR ARENA";
+                draw_text_screen(
+                    (static_cast<float>(mctx.width) - text_width(title_text, title_scale)) * 0.5f,
+                    static_cast<float>(mctx.height) * 0.28f,
+                    title_scale,
+                    title_text,
+                    {1.0f, 0.92f, 0.88f}
+                );
+
+                const float button_width = 360.0f;
+                const float button_height = 72.0f;
+                const float button_left = (static_cast<float>(mctx.width) - button_width) * 0.5f;
+                const float button_top = static_cast<float>(mctx.height) * 0.52f;
+                const float button_right = button_left + button_width;
+                const float button_bottom = button_top + button_height;
+
+                double cursor_x = 0.0;
+                double cursor_y = 0.0;
+                glfwGetCursorPos(mctx.window, &cursor_x, &cursor_y);
+                const bool mouse_down = glfwGetMouseButton(mctx.window, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS;
+                const bool hovered = point_in_rect(static_cast<float>(cursor_x), static_cast<float>(cursor_y), button_left, button_top, button_right, button_bottom);
+
+                glColor4f(0.12f, 0.12f, 0.12f, hovered ? 0.98f : 0.82f);
+                glBegin(GL_QUADS);
+                glVertex2f(button_left, button_top);
+                glVertex2f(button_right, button_top);
+                glVertex2f(button_right, button_bottom);
+                glVertex2f(button_left, button_bottom);
+                glEnd();
+
+                glColor4f(1.0f, 1.0f, 1.0f, hovered ? 0.95f : 0.65f);
+                glBegin(GL_LINE_LOOP);
+                glVertex2f(button_left, button_top);
+                glVertex2f(button_right, button_top);
+                glVertex2f(button_right, button_bottom);
+                glVertex2f(button_left, button_bottom);
+                glEnd();
+
+                const float button_text_scale = 6.0f;
+                const std::string start_text = "START";
+                draw_text_screen(
+                    button_left + (button_width - text_width(start_text, button_text_scale)) * 0.5f,
+                    button_top + (button_height - 7.0f * button_text_scale) * 0.5f - 2.0f,
+                    button_text_scale,
+                    start_text,
+                    {0.97f, 0.97f, 0.97f}
+                );
+
+                const float quit_top = button_bottom + 18.0f;
+                const float quit_bottom = quit_top + button_height;
+                const bool quit_hovered = point_in_rect(static_cast<float>(cursor_x), static_cast<float>(cursor_y), button_left, quit_top, button_right, quit_bottom);
+                glColor4f(0.12f, 0.12f, 0.12f, quit_hovered ? 0.98f : 0.82f);
+                glBegin(GL_QUADS);
+                glVertex2f(button_left, quit_top);
+                glVertex2f(button_right, quit_top);
+                glVertex2f(button_right, quit_bottom);
+                glVertex2f(button_left, quit_bottom);
+                glEnd();
+
+                glColor4f(1.0f, 1.0f, 1.0f, quit_hovered ? 0.95f : 0.65f);
+                glBegin(GL_LINE_LOOP);
+                glVertex2f(button_left, quit_top);
+                glVertex2f(button_right, quit_top);
+                glVertex2f(button_right, quit_bottom);
+                glVertex2f(button_left, quit_bottom);
+                glEnd();
+
+                const std::string quit_text = "QUIT";
+                draw_text_screen(
+                    button_left + (button_width - text_width(quit_text, button_text_scale)) * 0.5f,
+                    quit_top + (button_height - 7.0f * button_text_scale) * 0.5f - 2.0f,
+                    button_text_scale,
+                    quit_text,
+                    {0.97f, 0.97f, 0.97f}
+                );
+
+                static bool menu_mouse_down_last = false;
+                if (hovered && mouse_down && !menu_mouse_down_last) {
+                    // Start the game: reset and dismiss menu.
+                    reset_game_with_config(mctx.game, mctx.game.config);
+                    menu_mouse_down_last = true;
+                    menu_active = false;
+                } else if (quit_hovered && mouse_down && !menu_mouse_down_last) {
+                    glfwSetWindowShouldClose(mctx.window, 1);
+                    menu_mouse_down_last = true;
+                } else if (!mouse_down) {
+                    menu_mouse_down_last = false;
+                }
+
+                end_screen_space();
+            };
+
+            RenderMainMenuOverlay(ctx, in_main_menu);
+        } else {
+            UpdateInput(ctx);
+            UpdatePhysics(ctx);
+
+            bool should_fire_projectile = false;
+            UpdateCombat(ctx, should_fire_projectile);
+
+            RenderScene(ctx, should_fire_projectile);
+            RenderUI(ctx);
+        }
 
         glfwSwapBuffers(window);
         glfwPollEvents();
