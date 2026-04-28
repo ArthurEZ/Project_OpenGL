@@ -92,7 +92,10 @@ bool load_arena_mesh(const std::filesystem::path& gltf_path, ArenaMesh& mesh, st
 bool load_static_model_mesh(const std::filesystem::path& model_path, ArenaMesh& mesh, std::string& error);
   bool load_animated_model(const std::filesystem::path& model_path, AnimatedModel& model, std::string& error);
   bool load_animation_clip(const std::filesystem::path& clip_path, AnimatedModel::Clip& clip, std::string& error);
-  void update_animated_model(AnimatedModel& model, int clip_index, float time_seconds);
+  // leg_rotation_scale and leg_translation_scale attenuate sampled animation for bones whose
+  // node name contains "leg" (case-insensitive). Defaults keep original behavior.
+  void update_animated_model(AnimatedModel& model, int clip_index, float time_seconds,
+                             float leg_rotation_scale = 1.0f, float leg_translation_scale = 1.0f);
 bool upload_arena_textures(ArenaMesh& mesh, std::string& error);
 void free_arena_textures(ArenaMesh& mesh);
   void free_arena_textures(AnimatedModel& model);

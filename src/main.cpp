@@ -550,6 +550,7 @@ struct GameContext {
     bool have_staff;
     int idle_clip_index;
     int walk_clip_index;
+    int enemy_walk_clip_index;
     const StaffAttachSettings& staff_attach_walk_settings;
     const StaffAttachSettings& staff_attach_idle_settings;
     std::mt19937& rng;
@@ -863,13 +864,25 @@ void RenderScene(GameContext& ctx, bool should_fire_projectile) {
 
     const Mat4 enemy_local = make_enemy_local_transform();
     if (ctx.have_enemy) {
-        update_animated_model(const_cast<AnimatedModel&>(ctx.enemy_model), 0, static_cast<float>(ctx.animation_clock));
+        // Slow down enemy animation to match enemy movement speed and attenuate leg motion.
+        const float enemy_animation_speed = 0.6f; // playback speed multiplier (0.0 - 1.0)
+        const float enemy_leg_rot_scale = 0.5f;   // reduce rotation amplitude of leg bones
+        const float enemy_leg_trans_scale = 0.6f; // reduce translation amplitude of leg bones
+        const int enemy_clip_index = ctx.enemy_walk_clip_index >= 0 ? ctx.enemy_walk_clip_index : 0;
+        update_animated_model(const_cast<AnimatedModel&>(ctx.enemy_model), enemy_clip_index,
+                              static_cast<float>(ctx.animation_clock * enemy_animation_speed),
+                              enemy_leg_rot_scale, enemy_leg_trans_scale);
     }
     for (const auto& enemy : ctx.game.enemies) {
         if (ctx.have_enemy) {
+            // Make enemy face the player: compute yaw from enemy->player and apply per-enemy rotation.
+            const float dx = ctx.game.player_position.x - enemy.position.x;
+            const float dz = ctx.game.player_position.z - enemy.position.z;
+            const float target_yaw = std::atan2(dx, dz);
+            const Mat4 enemy_rotation = make_rotate_y(target_yaw + kEnemyYawFixRadians);
             const Mat4 enemy_world = mul_mat4(
                 make_translation(enemy.position.x, enemy.position.y, enemy.position.z),
-                enemy_local
+                mul_mat4(enemy_rotation, enemy_local)
             );
             render_model(ctx.enemy_model.mesh, enemy_world);
         } else {
@@ -1158,6 +1171,37 @@ int main() {
         std::cerr << "Could not find Enemy model file.\n";
     }
 
+    int enemy_walk_clip_index = -1;
+    if (have_enemy) {
+        auto clip_name_matches = [](const std::string& name, const char* candidate) {
+            if (name.size() != std::char_traits<char>::length(candidate)) {
+                return false;
+            }
+            for (size_t i = 0; i < name.size(); ++i) {
+                if (std::tolower(static_cast<unsigned char>(name[i])) != std::tolower(static_cast<unsigned char>(candidate[i]))) {
+                    return false;
+                }
+            }
+            return true;
+        };
+
+        auto find_preferred_clip = [&](const std::array<const char*, 4>& preferred_names) {
+            for (const char* preferred_name : preferred_names) {
+                for (size_t i = 0; i < enemy_model.clips.size(); ++i) {
+                    if (clip_name_matches(enemy_model.clips[i].name, preferred_name)) {
+                        return static_cast<int>(i);
+                    }
+                }
+            }
+            return -1;
+        };
+
+        enemy_walk_clip_index = find_preferred_clip({"Walk", "Walk_Tall", "Run", "Idle"});
+        if (enemy_walk_clip_index < 0 && !enemy_model.clips.empty()) {
+            enemy_walk_clip_index = 0;
+        }
+    }
+
     if (!staff_path.empty()) {
         std::string model_error;
         have_staff = load_static_model_mesh(staff_path, staff, model_error);
@@ -1254,7 +1298,7 @@ int main() {
 
         GameContext ctx = {
             window, game, ground_triangles, arena, vanguard, enemy_model, staff,
-            have_vanguard, have_enemy, have_staff, idle_clip_index, walk_clip_index,
+            have_vanguard, have_enemy, have_staff, idle_clip_index, walk_clip_index, enemy_walk_clip_index,
             staff_attach_walk_settings, staff_attach_idle_settings, rng,
             animation_clock, player_is_moving, restart_mouse_down_last_frame,
             levelup_mouse_down_last_frame, width, height, dt, grid

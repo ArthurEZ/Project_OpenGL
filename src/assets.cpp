@@ -1492,7 +1492,8 @@ bool load_animation_clip(const std::filesystem::path& clip_path, AnimatedModel::
     return true;
 }
 
-void update_animated_model(AnimatedModel& model, int clip_index, float time_seconds) {
+void update_animated_model(AnimatedModel& model, int clip_index, float time_seconds,
+                           float leg_rotation_scale, float leg_translation_scale) {
     if (model.mesh.primitives.empty()) {
         return;
     }
@@ -1538,15 +1539,27 @@ void update_animated_model(AnimatedModel& model, int clip_index, float time_seco
         const auto channel_it = channel_lookup.find(node.name);
         if (channel_it != channel_lookup.end() && channel_it->second != nullptr) {
             const auto& channel = *channel_it->second;
-            const Vec3 translation = channel.position_keys.empty()
+            Vec3 translation = channel.position_keys.empty()
                 ? Vec3{0.0f, 0.0f, 0.0f}
                 : sample_vec3_keys(channel.position_keys, clip_time);
             const Vec3 scale = channel.scale_keys.empty()
                 ? Vec3{1.0f, 1.0f, 1.0f}
                 : sample_vec3_keys(channel.scale_keys, clip_time);
-            const std::array<float, 4> rotation = channel.rotation_keys.empty()
+            std::array<float, 4> rotation = channel.rotation_keys.empty()
                 ? std::array<float, 4>{0.0f, 0.0f, 0.0f, 1.0f}
                 : sample_quat_keys(channel.rotation_keys, clip_time);
+
+            // If this channel targets a leg bone/joint, attenuate its motion so leg swings match enemy speed.
+            if (contains_insensitive(channel.node_name, "leg")) {
+                // scale translation
+                translation.x *= leg_translation_scale;
+                translation.y *= leg_translation_scale;
+                translation.z *= leg_translation_scale;
+                // scale rotation by slerping from identity toward sampled rotation
+                const std::array<float, 4> identity_q{0.0f, 0.0f, 0.0f, 1.0f};
+                rotation = normalize_quat(slerp_quat(identity_q, rotation, leg_rotation_scale));
+            }
+
             local = compose_trs({translation.x, translation.y, translation.z}, rotation, {scale.x, scale.y, scale.z});
         }
 
